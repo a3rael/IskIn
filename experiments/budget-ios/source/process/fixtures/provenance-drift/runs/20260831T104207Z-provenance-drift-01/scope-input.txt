@@ -1,0 +1,1 @@
+process-only fixture scope v2 — synthetic drift

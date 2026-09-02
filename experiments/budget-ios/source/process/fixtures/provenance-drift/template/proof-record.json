@@ -1,0 +1,21 @@
+{
+  "proof_record_version": 1,
+  "fixture_type": "process-only-provenance-drift",
+  "run_id": "<run_id>",
+  "status": "template-not-run",
+  "manifest": {
+    "path": "manifest.json",
+    "sha256": "<sha256-manifest>"
+  },
+  "report": {
+    "path": "report.md",
+    "sha256": "<sha256-report>"
+  },
+  "invalidation_event": {
+    "status": "template-only",
+    "event_id": "<event-id>",
+    "expected_sha256": "<sha256-before-drift>",
+    "observed_sha256": "<sha256-after-drift>"
+  },
+  "product_evidence_created": false
+}

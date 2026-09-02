@@ -1,0 +1,36 @@
+{
+  "proof_record_version": 1,
+  "fixture_type": "process-only-provenance-drift",
+  "run_id": "20260831T104207Z-provenance-drift-01",
+  "status": "invalidation-detected",
+  "manifest": {
+    "path": "manifest.json",
+    "sha256": "138522c7c9de2b11e5f4859442fe29590b3b1d7e38643123a987b18123fe8344"
+  },
+  "report": {
+    "path": "report.md",
+    "sha256": "b7a178e3dd0cd3b4eafced9fec1ab9c8c394b4966a32d02e349d101b87ad70b3"
+  },
+  "fingerprint_checkpoint": {
+    "path": "scope-input.txt",
+    "expected_sha256": "589c429b8ca7ed5f954465c3a44d7d02606e49e65f640dcba49430ba829a82b5",
+    "observed_sha256": "d3efeadfe09313d3cc531c3fa5e3415f2f6d9a8e600681092286b7e00f8b1fae",
+    "result": "mismatch"
+  },
+  "invalidation_event": {
+    "event_id": "INV-PROC-20260831T104320Z",
+    "occurred_at_utc": "2026-08-31T10:43:20Z",
+    "outcome": "synthetic-process-fixture",
+    "gate": "process_fixture",
+    "path": "scope-input.txt",
+    "expected_sha256": "589c429b8ca7ed5f954465c3a44d7d02606e49e65f640dcba49430ba829a82b5",
+    "observed_sha256": "d3efeadfe09313d3cc531c3fa5e3415f2f6d9a8e600681092286b7e00f8b1fae",
+    "consequence": "synthetic outcome remains evidence-pending"
+  },
+  "synthetic_outcome": {
+    "status": "evidence-pending",
+    "reason": "current scope fingerprint differs from manifest"
+  },
+  "product_evidence_created": false,
+  "durable_artifacts": ["manifest.json", "report.md", "proof-record.json", "scope-input.txt"]
+}

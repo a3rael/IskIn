@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "fixture_type": "process-only-provenance-drift",
+  "run_id": "20260831T104207Z-provenance-drift-01",
+  "status": "baseline-recorded",
+  "canonical_command": "not applicable: process-only synthetic exercise",
+  "execution_mode": "process-only",
+  "product_execution": false,
+  "scopes": {
+    "process_fixture": {
+      "inputs": [
+        {
+          "path": "scope-input.txt",
+          "sha256": "589c429b8ca7ed5f954465c3a44d7d02606e49e65f640dcba49430ba829a82b5"
+        }
+      ]
+    }
+  },
+  "overwrite_policy": "fail-if-run-directory-exists"
+}

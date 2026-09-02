@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "fixture_type": "process-only-provenance-drift",
+  "run_id": "<run-id>",
+  "status": "template-not-run",
+  "canonical_command": "not applicable: template only",
+  "repository_runner": "not applicable: template only",
+  "scopes": {
+    "process_fixture": [
+      {
+        "path": "input-v1.txt",
+        "sha256": "<sha256-before-drift>"
+      }
+    ]
+  },
+  "forbidden_dependencies": ["product code", "external service"],
+  "overwrite_policy": "fail-if-run-directory-exists"
+}
