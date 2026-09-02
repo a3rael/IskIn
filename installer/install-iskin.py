@@ -232,9 +232,43 @@ def _load_manifest(raw: bytes, expected_version: str, expected_root: str) -> dic
     return manifest
 
 
-def _validate_release(archive: Path, expected_version: str, expected_sha256: str, checks: list[Check]) -> ReleasePackage:
-    if not _VERSION_RE.fullmatch(expected_version):
+def validate_release_version(release_version: str) -> None:
+    if not isinstance(release_version, str) or not _VERSION_RE.fullmatch(release_version):
         raise VerificationFailure(EXIT_USAGE, "release_version", "release version must be MAJOR.MINOR.PATCH")
+
+
+def build_package_manifest(release_version: str, template_files: dict[str, bytes]) -> dict[str, Any]:
+    """Build the exact schema-v1 package manifest from known file bytes."""
+    validate_release_version(release_version)
+    if not isinstance(template_files, dict) or not template_files:
+        raise VerificationFailure(EXIT_MANIFEST, "template_files", "template_files must be a non-empty mapping")
+
+    entries: list[dict[str, str]] = []
+    for path in sorted(template_files):
+        if not isinstance(path, str) or path in {"VERSION", "package-manifest.json"} or path.startswith("template/"):
+            raise VerificationFailure(EXIT_MANIFEST, "manifest_path", f"invalid template path: {path!r}")
+        try:
+            _validate_safe_path(path)
+        except VerificationFailure as exc:
+            raise VerificationFailure(EXIT_MANIFEST, "manifest_path", exc.detail) from exc
+        if _FORBIDDEN_PATH_RE.search(path):
+            raise VerificationFailure(EXIT_ARCHIVE, "forbidden_product_file", f"forbidden product-specific path: {path}")
+        data = template_files[path]
+        if not isinstance(data, bytes):
+            raise VerificationFailure(EXIT_MANIFEST, "template_bytes", f"template file is not bytes: {path}")
+        entries.append({"path": path, "sha256": _sha256_bytes(data)})
+
+    return {
+        "schema_version": 1,
+        "release_version": release_version,
+        "root": f"iskin-v{release_version}",
+        "template_root": "template",
+        "files": entries,
+    }
+
+
+def _validate_release(archive: Path, expected_version: str, expected_sha256: str, checks: list[Check]) -> ReleasePackage:
+    validate_release_version(expected_version)
     if not _SHA256_RE.fullmatch(expected_sha256):
         raise VerificationFailure(EXIT_USAGE, "expected_sha256", "expected SHA-256 must be 64 lowercase hexadecimal characters")
 
@@ -673,6 +707,11 @@ def _validate_installation_manifest(base: Path, package: ReleasePackage) -> None
     version_path = base / ".iskin" / "version"
     if version_path.read_text(encoding="utf-8").strip() != package.release_version:
         raise InstallationFailure("version", ".iskin/version does not match release")
+
+
+def validate_installation_manifest(base: Path, package: ReleasePackage) -> None:
+    """Read back installation metadata without exposing private rules to callers."""
+    _validate_installation_manifest(base, package)
 
 
 def _cleanup_created(

@@ -35,6 +35,20 @@ python3 install-iskin.py \\
 
 `--init-git` по умолчанию выключен. При его явном указании установщик может выполнить `git init`, но не создаёт commit, remote, branch ref, tag и не выполняет push. Target должен быть новой, пустой или `.git`-only папкой; сам target и `.git` не могут быть симлинками.
 
+## Локальный generator release-комплекта
+
+Development-only generator находится в `build_release.py` и использует только `package/template/`, canonical `install-iskin.py` и явно переданную версию:
+
+```text
+python3 installer/build_release.py \\
+  --release-version 0.3.0 \\
+  --output-dir /path/to/output
+```
+
+Он создаёт ровно `iskin-v0.3.0.zip`, `install-iskin.py` и `SHA256SUMS`. Комплект сначала собирается в sibling staging, проверяется этим же read-only validator-ом и устанавливается только во временный probe-проект. Для ZIP используются `ZIP_STORED`, фиксированный timestamp `1980-01-01 00:00:00`, отсортированные записи без directory entries, пустые extra fields/comment и фиксированные обычные file attributes. После успешного read-back результаты публикуются без перезаписи; при ошибке staging удаляется.
+
+Одинаковые исходники и версия дают одинаковые байты всех трёх файлов. Generator не создаёт постоянные release-файлы в репозитории, не означает стабильный release и не выполняет tag, push или GitHub Release автоматически.
+
 ## Schema `package-manifest.json` v1
 
 Manifest имеет ровно следующие поля верхнего уровня:

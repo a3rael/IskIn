@@ -39,6 +39,20 @@ SHA256SUMS
 
 Внутри архива ожидается корень `iskin-v0.3.0/` с `VERSION`, `package-manifest.json` и `template/`. Точная schema v1 manifest зафиксирована в `docs/decisions/2026-09-02-v0.3-package-manifest-v1.md`: верхний уровень содержит только `schema_version`, `release_version`, `root`, `template_root` и `files`; каждая запись `files` содержит только `path` и строчный `sha256`; список отсортирован и является полным allowlist файлов шаблона. Пути в `files` относительны `template_root`; `VERSION`, manifest и каталоги в список не входят. Архив не содержит установщик и `SHA256SUMS`.
 
+## Локальная воспроизводимая сборка
+
+Для development-сборки комплекта используется:
+
+```text
+python3 installer/build_release.py \\
+  --release-version 0.3.0 \\
+  --output-dir /path/to/output
+```
+
+`output-dir` может быть новой или пустой папкой. Generator сначала создаёт staging на той же файловой системе, формирует manifest и ZIP с фиксированным порядком, timestamp `1980-01-01 00:00:00`, `ZIP_STORED`, пустыми extra fields/comment и фиксированными обычными file attributes. Затем он запускает read-only validator, пробную установку только во временный проект, сравнение байтов с `package/template/` и read-back installation metadata. Только после этого публикуются ровно три файла без перезаписи.
+
+Одинаковые исходники и версия должны давать побайтово одинаковые `iskin-v<version>.zip`, `install-iskin.py` и `SHA256SUMS`. Локальная сборка не означает стабильный release, human acceptance или production readiness. Generator не выполняет network/push/tag/GitHub Release; публикация остаётся отдельным человеческим решением. Контракт подробно зафиксирован в `docs/decisions/2026-09-02-v0.3-reproducible-release-build.md`.
+
 ## Поведение установки
 
 Установщик:
@@ -83,7 +97,7 @@ SHA256SUMS
 - автоматическое подключение GitHub;
 - исправление runtime-индексации проектных навыков U-003;
 - улучшения v0.4 и второй полигон;
-- commit, remote, release и push.
+- commit, remote, внешний release и push.
 
 ## Проверенный критерий установщика v0.3
 

@@ -68,7 +68,7 @@ python3 tools/verify_repository.py
 ```text
 python3 -m unittest installer/test_verify_release.py -v
 python3 -m unittest discover -s installer -p 'test_*.py' -v
-python3 -m py_compile installer/install-iskin.py installer/verify_release.py installer/test_verify_release.py installer/test_install_iskin.py
+python3 -m py_compile installer/install-iskin.py installer/verify_release.py installer/build_release.py installer/test_verify_release.py installer/test_install_iskin.py installer/test_build_release.py
 ```
 
 Полный discovery-набор обязателен всегда; запуск только одного файла не считается достаточным. Точный список файлов для `py_compile` обновляется вместе с появлением новых Python-файлов установщика.

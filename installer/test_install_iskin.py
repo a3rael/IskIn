@@ -311,6 +311,7 @@ class InstallIskinTests(unittest.TestCase):
             f"{installer_digest}  {INSTALLER_NAME}\n",
             encoding="utf-8",
         )
+        self.archive = archive
         target = self.root / "standalone-target"
         environment = {key: value for key, value in os.environ.items() if key != "PYTHONPATH"}
         result = subprocess.run(
