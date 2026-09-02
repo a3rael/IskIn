@@ -218,6 +218,13 @@ class VerifyReleaseCliTests(unittest.TestCase):
         self.assertEqual(result.returncode, 5)
         self.assertIn("manifest_json", result.stdout)
 
+    def test_corrupted_zip_is_rejected(self) -> None:
+        self.archive.write_bytes(b"not-a-zip")
+        self.rewrite_sums_for_archive(self.archive)
+        result = self.run_validator(self.archive)
+        self.assertEqual(result.returncode, 4)
+        self.assertIn("zip_format", result.stdout)
+
     def test_missing_manifest_field_is_rejected(self) -> None:
         archive = self.rebuild(manifest_remove=("release_version",))
         result = self.run_validator(archive)

@@ -70,7 +70,7 @@ SECRET_ASSIGNMENT = re.compile(
     re.IGNORECASE,
 )
 TEMP_FILE_SUFFIXES = {".pyc", ".pyo", ".xcresult", ".zip"}
-TEMP_FILE_NAMES = {"SHA256SUMS", "install-iskin.py"}
+TEMP_FILE_NAMES = {"SHA256SUMS"}
 
 
 @dataclass(frozen=True)
@@ -216,7 +216,9 @@ def check_forbidden_package_content() -> Check:
 def check_forbidden_artifacts() -> Check:
     findings: list[str] = []
     for path in _all_files():
-        if path.name == ".DS_Store" or path.name.startswith("._") or path.name in TEMP_FILE_NAMES or path.suffix.lower() in TEMP_FILE_SUFFIXES:
+        relative = path.relative_to(ROOT).as_posix()
+        release_installer_copy = path.name == "install-iskin.py" and relative != "installer/install-iskin.py"
+        if path.name == ".DS_Store" or path.name.startswith("._") or path.name in TEMP_FILE_NAMES or release_installer_copy or path.suffix.lower() in TEMP_FILE_SUFFIXES:
             findings.append(path.relative_to(ROOT).as_posix())
         if "__pycache__" in path.parts:
             findings.append(path.relative_to(ROOT).as_posix())

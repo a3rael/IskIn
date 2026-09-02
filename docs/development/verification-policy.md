@@ -46,7 +46,7 @@ python3 tools/verify_repository.py
    git diff --cached --check
    ```
 
-4. проверить, что в index не попали `.DS_Store`, `._*`, `__pycache__`, `*.pyc`, `*.pyo`, `*.xcresult`, временные архивы, тестовые release-артефакты и другие временные файлы;
+4. проверить, что в index не попали `.DS_Store`, `._*`, `__pycache__`, `*.pyc`, `*.pyo`, `*.xcresult`, временные архивы, тестовые release-артефакты и другие временные файлы; канонический исходник `installer/install-iskin.py` исключение и разрешён, release-копии вне `installer/` запрещены;
 5. проверить отсутствие неожиданных симлинков;
 6. проверить отсутствие секретов и приватных данных; значения секретов никогда не выводятся в отчёт;
 7. проверить, что незавершённая работа и неизвестные изменения исключены или вынесены на human gate.
@@ -67,16 +67,11 @@ python3 tools/verify_repository.py
 
 ```text
 python3 -m unittest installer/test_verify_release.py -v
-python3 -m py_compile installer/verify_release.py installer/test_verify_release.py
-```
-
-Если в `installer/` появляются дополнительные тесты, обязательным становится также полный актуальный набор:
-
-```text
 python3 -m unittest discover -s installer -p 'test_*.py' -v
+python3 -m py_compile installer/install-iskin.py installer/verify_release.py installer/test_verify_release.py installer/test_install_iskin.py
 ```
 
-Запуск только одного старого файла после появления дополнительных тестов не считается полным набором.
+Полный discovery-набор обязателен всегда; запуск только одного файла не считается достаточным. Точный список файлов для `py_compile` обновляется вместе с появлением новых Python-файлов установщика.
 
 ### Изменены `tools/*.py`
 
