@@ -22,6 +22,22 @@ python3 installer/verify_release.py \\
 
 `install-iskin.py` и `SHA256SUMS` должны находиться рядом с архивом. При наличии `--report` JSON-отчёт записывается только в явно указанный путь; родительский каталог должен существовать.
 
+## Schema `package-manifest.json` v1
+
+Manifest имеет ровно следующие поля верхнего уровня:
+
+```text
+schema_version
+release_version
+root
+template_root
+files
+```
+
+`schema_version` равен целому числу `1`. `release_version` совпадает с аргументом валидатора, именем архива, `VERSION` и версией в `root`; `root` имеет вид `iskin-v<release_version>`, а `template_root` для v0.3 равен `template`.
+
+`files` — отсортированный лексикографически полный allowlist обычных файлов шаблона. Пути относительны `template_root` и используют только безопасную `/`-форму. Каждая запись содержит ровно `path` и строчный `sha256` длиной 64 знака. `VERSION`, `package-manifest.json`, каталоги и неизвестные поля запрещены. Каноническое human decision: `docs/decisions/2026-09-02-v0.3-package-manifest-v1.md`.
+
 Exit codes:
 
 - `0` — release полностью прошёл проверку;

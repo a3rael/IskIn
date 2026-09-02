@@ -51,21 +51,26 @@ def build_release(
     manifest_payload: dict[str, bytes] | None = None,
     version_file: str = VERSION,
     manifest_bytes: bytes | None = None,
+    manifest_updates: dict[str, object] | None = None,
+    manifest_remove: tuple[str, ...] = (),
+    manifest_files: list[dict[str, object]] | None = None,
     extra_members: list[tuple[str, bytes, int | None]] | None = None,
 ) -> Path:
     payload = dict(template_payload() if payload is None else payload)
     manifest_payload = payload if manifest_payload is None else manifest_payload
     manifest = {
         "schema_version": 1,
-        "package": "iskin",
-        "version": VERSION,
+        "release_version": VERSION,
         "root": ARCHIVE_ROOT,
         "template_root": "template",
-        "files": [
+        "files": manifest_files if manifest_files is not None else [
             {"path": path, "sha256": sha256_bytes(data)}
             for path, data in sorted(manifest_payload.items())
         ],
     }
+    manifest.update(manifest_updates or {})
+    for key in manifest_remove:
+        manifest.pop(key, None)
     if manifest_bytes is None:
         manifest_bytes = (json.dumps(manifest, ensure_ascii=False, indent=2) + "\n").encode()
 
@@ -138,6 +143,13 @@ class VerifyReleaseCliTests(unittest.TestCase):
         archive = build_release(self.directory, **kwargs)
         return archive
 
+    def manifest_entries(self, payload: dict[str, bytes] | None = None) -> list[dict[str, object]]:
+        payload = template_payload() if payload is None else payload
+        return [
+            {"path": path, "sha256": sha256_bytes(data)}
+            for path, data in sorted(payload.items())
+        ]
+
     def test_valid_archive_passes_and_writes_report(self) -> None:
         result = self.run_validator()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -206,6 +218,72 @@ class VerifyReleaseCliTests(unittest.TestCase):
         self.assertEqual(result.returncode, 5)
         self.assertIn("manifest_json", result.stdout)
 
+    def test_missing_manifest_field_is_rejected(self) -> None:
+        archive = self.rebuild(manifest_remove=("release_version",))
+        result = self.run_validator(archive)
+        self.assertEqual(result.returncode, 5)
+        self.assertIn("manifest_fields", result.stdout)
+
+    def test_unknown_manifest_field_is_rejected(self) -> None:
+        archive = self.rebuild(manifest_updates={"unexpected": "value"})
+        result = self.run_validator(archive)
+        self.assertEqual(result.returncode, 5)
+        self.assertIn("manifest_unknown_fields", result.stdout)
+
+    def test_manifest_release_version_mismatch_is_rejected(self) -> None:
+        archive = self.rebuild(manifest_updates={"release_version": "0.3.1"})
+        result = self.run_validator(archive)
+        self.assertEqual(result.returncode, 5)
+        self.assertIn("manifest_release_version", result.stdout)
+
+    def test_manifest_root_mismatch_is_rejected(self) -> None:
+        archive = self.rebuild(manifest_updates={"root": "iskin-v0.3.1"})
+        result = self.run_validator(archive)
+        self.assertEqual(result.returncode, 5)
+        self.assertIn("manifest_root", result.stdout)
+
+    def test_manifest_template_root_mismatch_is_rejected(self) -> None:
+        archive = self.rebuild(manifest_updates={"template_root": "template-v2"})
+        result = self.run_validator(archive)
+        self.assertEqual(result.returncode, 5)
+        self.assertIn("manifest_template_root", result.stdout)
+
+    def test_unknown_manifest_entry_field_is_rejected(self) -> None:
+        entries = self.manifest_entries()
+        entries[0]["unexpected"] = "value"
+        archive = self.rebuild(manifest_files=entries)
+        result = self.run_validator(archive)
+        self.assertEqual(result.returncode, 5)
+        self.assertIn("manifest_entry", result.stdout)
+
+    def test_unsorted_manifest_files_are_rejected(self) -> None:
+        archive = self.rebuild(manifest_files=list(reversed(self.manifest_entries())))
+        result = self.run_validator(archive)
+        self.assertEqual(result.returncode, 5)
+        self.assertIn("manifest_order", result.stdout)
+
+    def test_uppercase_manifest_sha256_is_rejected(self) -> None:
+        entries = self.manifest_entries()
+        entries[0]["sha256"] = "A" * 64
+        archive = self.rebuild(manifest_files=entries)
+        result = self.run_validator(archive)
+        self.assertEqual(result.returncode, 5)
+        self.assertIn("manifest_sha256", result.stdout)
+
+    def test_service_file_in_manifest_is_rejected(self) -> None:
+        payload = template_payload()
+        payload["VERSION"] = b"service file\n"
+        archive = self.rebuild(payload=payload, manifest_files=self.manifest_entries(payload))
+        result = self.run_validator(archive)
+        self.assertEqual(result.returncode, 5)
+        self.assertIn("manifest_path", result.stdout)
+
+    def test_non_integer_schema_version_is_rejected(self) -> None:
+        archive = self.rebuild(manifest_updates={"schema_version": True})
+        result = self.run_validator(archive)
+        self.assertEqual(result.returncode, 5)
+        self.assertIn("manifest_schema", result.stdout)
+
     def test_path_traversal_is_rejected(self) -> None:
         archive = self.rebuild(extra_members=[(f"{ARCHIVE_ROOT}/../../escape.txt", b"escape", None)])
         result = self.run_validator(archive)
@@ -231,8 +309,7 @@ class VerifyReleaseCliTests(unittest.TestCase):
         self.archive.unlink()
         manifest = {
             "schema_version": 1,
-            "package": "iskin",
-            "version": VERSION,
+            "release_version": VERSION,
             "root": ARCHIVE_ROOT,
             "template_root": "template",
             "files": [

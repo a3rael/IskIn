@@ -25,7 +25,8 @@ EXIT_ARCHIVE = 4
 EXIT_MANIFEST = 5
 
 _VERSION_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
-_SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
+_SHA256_INPUT_RE = re.compile(r"^[0-9a-fA-F]{64}$")
+_SHA256_MANIFEST_RE = re.compile(r"^[0-9a-f]{64}$")
 _ARCHIVE_RE = re.compile(r"^iskin-v(?P<version>[0-9]+\.[0-9]+\.[0-9]+)\.zip$")
 _FORBIDDEN_PATH_RE = re.compile(
     r"budget|p0-0[1-5]|(?:^|[-_.])g[1-5](?:$|[-_.])|swift|xcode|xctest|xcuitest|budgetapp|₽|руб",
@@ -127,35 +128,55 @@ def _load_manifest(raw: bytes, expected_version: str, expected_root: str) -> dic
     if not isinstance(manifest, dict):
         raise VerificationFailure(EXIT_MANIFEST, "manifest_object", "package-manifest.json must be an object")
 
-    required = {"schema_version", "version", "root", "template_root", "files"}
-    missing = sorted(required - set(manifest))
+    required = {"schema_version", "release_version", "root", "template_root", "files"}
+    keys = set(manifest)
+    missing = sorted(required - keys)
     if missing:
         raise VerificationFailure(EXIT_MANIFEST, "manifest_fields", f"manifest is missing fields: {missing}")
-    if manifest["schema_version"] != 1:
-        raise VerificationFailure(EXIT_MANIFEST, "manifest_schema", "unsupported manifest schema_version")
-    if manifest["version"] != expected_version or manifest["root"] != expected_root:
-        raise VerificationFailure(EXIT_MANIFEST, "manifest_identity", "manifest version or root does not match release")
+    unknown = sorted(keys - required)
+    if unknown:
+        raise VerificationFailure(EXIT_MANIFEST, "manifest_unknown_fields", f"manifest has unknown fields: {unknown}")
+    if type(manifest["schema_version"]) is not int or manifest["schema_version"] != 1:
+        raise VerificationFailure(EXIT_MANIFEST, "manifest_schema", "schema_version must be integer 1")
+    release_version = manifest["release_version"]
+    if not isinstance(release_version, str) or not _VERSION_RE.fullmatch(release_version):
+        raise VerificationFailure(EXIT_MANIFEST, "manifest_release_version", "release_version must be MAJOR.MINOR.PATCH")
+    if release_version != expected_version:
+        raise VerificationFailure(EXIT_MANIFEST, "manifest_release_version", "manifest release_version does not match release")
+    root = manifest["root"]
+    if not isinstance(root, str) or root != f"iskin-v{release_version}" or root != expected_root:
+        raise VerificationFailure(EXIT_MANIFEST, "manifest_root", "manifest root must be iskin-v<release_version>")
     if manifest["template_root"] != "template":
         raise VerificationFailure(EXIT_MANIFEST, "manifest_template_root", "manifest template_root must be 'template'")
     if not isinstance(manifest["files"], list) or not manifest["files"]:
         raise VerificationFailure(EXIT_MANIFEST, "manifest_files", "manifest files must be a non-empty array")
 
     seen: set[str] = set()
+    paths: list[str] = []
     for item in manifest["files"]:
         if not isinstance(item, dict) or set(item) != {"path", "sha256"}:
             raise VerificationFailure(EXIT_MANIFEST, "manifest_entry", "each manifest file entry must contain path and sha256 only")
         path = item["path"]
         digest = item["sha256"]
-        if not isinstance(path, str) or path.startswith("template/"):
+        if (
+            not isinstance(path, str)
+            or not path
+            or path.endswith("/")
+            or path in {"VERSION", "package-manifest.json"}
+            or path.startswith("template/")
+        ):
             raise VerificationFailure(EXIT_MANIFEST, "manifest_path", f"manifest path is not relative to template: {path!r}")
         _validate_safe_member_name(path)
-        if not isinstance(digest, str) or not _SHA256_RE.fullmatch(digest):
+        if not isinstance(digest, str) or not _SHA256_MANIFEST_RE.fullmatch(digest):
             raise VerificationFailure(EXIT_MANIFEST, "manifest_sha256", f"invalid SHA-256 for manifest path: {path!r}")
         if path in seen:
             raise VerificationFailure(EXIT_MANIFEST, "manifest_duplicate", f"duplicate manifest path: {path}")
         if _FORBIDDEN_PATH_RE.search(path):
             raise VerificationFailure(EXIT_ARCHIVE, "forbidden_product_file", f"forbidden product-specific path: {path}")
         seen.add(path)
+        paths.append(path)
+    if paths != sorted(paths):
+        raise VerificationFailure(EXIT_MANIFEST, "manifest_order", "manifest files must be sorted lexicographically by path")
     return manifest
 
 
@@ -248,7 +269,7 @@ def verify_release(archive: Path, expected_version: str, expected_sha256: str) -
     try:
         if not _VERSION_RE.fullmatch(expected_version):
             raise VerificationFailure(EXIT_USAGE, "release_version", "release version must be MAJOR.MINOR.PATCH")
-        if not _SHA256_RE.fullmatch(expected_sha256):
+        if not _SHA256_INPUT_RE.fullmatch(expected_sha256):
             raise VerificationFailure(EXIT_USAGE, "expected_sha256", "expected SHA-256 must be 64 hexadecimal characters")
         _require_regular(archive, "archive")
         checks.append(Check("archive_file", "PASS", "regular local file"))

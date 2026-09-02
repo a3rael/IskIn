@@ -37,7 +37,7 @@ install-iskin.py
 SHA256SUMS
 ```
 
-Внутри архива ожидается корень `iskin-v0.3.0/` с `VERSION`, `package-manifest.json` и `template/`. Manifest обязательно содержит версию, полный allowlist относительных путей файлов шаблона и SHA-256 каждого файла. Read-only прототип использует техническую схему с `schema_version`, `root`, `template_root` и массивом `files`; точные поля этой схемы нужно подтвердить перед production-релизом. Архив не содержит установщик и `SHA256SUMS`.
+Внутри архива ожидается корень `iskin-v0.3.0/` с `VERSION`, `package-manifest.json` и `template/`. Точная schema v1 manifest зафиксирована в `docs/decisions/2026-09-02-v0.3-package-manifest-v1.md`: верхний уровень содержит только `schema_version`, `release_version`, `root`, `template_root` и `files`; каждая запись `files` содержит только `path` и строчный `sha256`; список отсортирован и является полным allowlist файлов шаблона. Пути в `files` относительны `template_root`; `VERSION`, manifest и каталоги в список не входят. Архив не содержит установщик и `SHA256SUMS`.
 
 ## Поведение установки
 
