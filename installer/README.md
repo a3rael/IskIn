@@ -35,6 +35,15 @@ python3 install-iskin.py \\
 
 `--init-git` по умолчанию выключен. При его явном указании установщик может выполнить `git init`, но не создаёт commit, remote, branch ref, tag и не выполняет push. Target должен быть новой, пустой или `.git`-only папкой; сам target и `.git` не могут быть симлинками.
 
+После успешной установки установщик печатает точную ручную последовательность:
+
+```text
+cd <project-root>
+hermes skills trust
+```
+
+Установщик не запускает `hermes skills trust` сам. Эта команда изменяет доверенное runtime-состояние Hermes; после неё требуется полный перезапуск Hermes Desktop и новая сессия. Наличие файла навыка или успешный `hermes skills list` не заменяют runtime-проверку загрузки по имени. Полный сценарий находится в `docs/integration/hermes-desktop.md`.
+
 ## Локальный generator release-комплекта
 
 Development-only generator находится в `build_release.py` и использует только `package/template/`, canonical `install-iskin.py` и явно переданную версию:

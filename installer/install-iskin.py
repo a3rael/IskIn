@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import shutil
 import stat
 import subprocess
@@ -917,6 +918,11 @@ def run_install_cli(argv: Iterable[str] | None = None) -> int:
         print(f"[{check['status']}] {check['name']}: {check['detail']}")
     if code == EXIT_OK:
         print("[PASS] installation_manifest: created last and verified")
+        target = _normalise_path(args.target_path)
+        print("[NEXT] Run manually; the installer does not execute this command:")
+        print(f"cd {shlex.quote(str(target))}")
+        print("hermes skills trust")
+        print("[INFO] `hermes skills trust` changes Hermes trusted runtime state.")
     return code
 
 

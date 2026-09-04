@@ -14,9 +14,9 @@
 
 ### Hermes-интеграция
 
-Интеграционный слой — устанавливаемый `AGENTS.md` и шесть проектных навыков в `.hermes/skills/`. Он связывает универсальный контракт с Hermes Agent и Hermes Desktop Project, фиксирует доверие к навыкам, runtime skill resolution, permission blocks, session recovery и tool-call limits.
+Интеграционный слой — устанавливаемый `AGENTS.md` и шесть проектных навыков в `.hermes/skills/`. Он связывает универсальный контракт с Hermes Agent и Hermes Desktop Project, фиксирует обязательный ручной шаг `hermes skills trust`, runtime skill resolution, permission blocks, session recovery и tool-call limits. Полный порядок проверки находится в `docs/integration/hermes-desktop.md`.
 
-Наличие файла навыка не доказывает его runtime-доступность. Статус разрешения навыка фиксируется отдельно как `runtime-project`, `file-only`, `missing` или `unstable`.
+Наличие файла навыка и результат `hermes skills list` не доказывают его runtime-доступность. Доказательством считаются только наличие имени в runtime-каталоге текущей сессии и успешная загрузка навыка по имени. Статус разрешения навыка фиксируется отдельно как `runtime-project`, `file-only`, `missing` или `unstable`.
 
 ### Продуктовая адаптация
 

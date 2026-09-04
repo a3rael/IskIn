@@ -299,6 +299,15 @@ class InstallIskinTests(unittest.TestCase):
         self.assertTrue((target / ".git").is_dir())
         self.assert_installed(target)
 
+    def test_success_message_prints_manual_skill_trust_step(self) -> None:
+        target = self.root / "manual-trust-project"
+        result = self.run_cli(CANONICAL, target)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("[NEXT] Run manually; the installer does not execute this command:", result.stdout)
+        self.assertIn(f"cd {target}", result.stdout)
+        self.assertIn("hermes skills trust", result.stdout)
+        self.assertIn("changes Hermes trusted runtime state", result.stdout)
+
     def test_standalone_copy_runs_without_repository_modules(self) -> None:
         standalone_dir = self.root / "standalone-release"
         standalone_dir.mkdir()
