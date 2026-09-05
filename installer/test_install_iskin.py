@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 from types import ModuleType
 
@@ -223,6 +224,170 @@ class InstallIskinTests(unittest.TestCase):
         self.assertEqual(report["status"], "FAIL")
         self.assertEqual(tree_snapshot(target), {})
         self.assertFalse((target / ".iskin" / "installation-manifest.json").exists())
+
+    def test_transfer_source_unlink_failure_rolls_back_empty_and_git_only_targets(self) -> None:
+        cases = ("empty", "git-only")
+        original_unlink = self.module.Path.unlink
+
+        for case in cases:
+            with self.subTest(case=case):
+                target = self.root / f"unlink-failure-{case}"
+                target.mkdir()
+                if case == "git-only":
+                    git_dir = target / ".git"
+                    git_dir.mkdir()
+                    (git_dir / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+                before = tree_snapshot(target)
+                failed = False
+
+                def fail_staging_unlink(path: Path, missing_ok: bool = False) -> None:
+                    nonlocal failed
+                    if not failed and ".iskin-stage-" in str(path):
+                        failed = True
+                        raise OSError("injected staging unlink failure")
+                    original_unlink(path, missing_ok=missing_ok)
+
+                with mock.patch.object(self.module.Path, "unlink", fail_staging_unlink):
+                    code, report = self.module.install_release(
+                        self.archive,
+                        VERSION,
+                        self.expected_sha256(),
+                        target,
+                    )
+
+                self.assertEqual(code, 7)
+                self.assertEqual(report["status"], "FAIL")
+                self.assertEqual(tree_snapshot(target), before)
+
+    def test_transferred_file_change_is_rejected_for_existing_targets(self) -> None:
+        for case in ("empty", "git-only"):
+            with self.subTest(case=case):
+                target = self.root / f"changed-file-{case}"
+                target.mkdir()
+                if case == "git-only":
+                    (target / ".git").mkdir()
+                before = tree_snapshot(target)
+                changed = False
+
+                def change_agents_after_transfer(event: str) -> None:
+                    nonlocal changed
+                    agents = target / "AGENTS.md"
+                    if event == "template_file_transferred" and agents.is_file() and not changed:
+                        agents.write_bytes(b"tampered after transfer\n")
+                        changed = True
+
+                code, report = self.module.install_release(
+                    self.archive,
+                    VERSION,
+                    self.expected_sha256(),
+                    target,
+                    event_hook=change_agents_after_transfer,
+                )
+
+                self.assertEqual(code, 7)
+                self.assertEqual(report["status"], "FAIL")
+                self.assertEqual(tree_snapshot(target), before)
+
+    def test_staged_file_change_is_rejected_before_new_target_publish(self) -> None:
+        target = self.root / "changed-file-new-target"
+
+        def change_agents_after_manifest(event: str) -> None:
+            if event != "installation_manifest_created":
+                return
+            stages = list(self.root.glob(".iskin-stage-*"))
+            self.assertEqual(len(stages), 1)
+            (stages[0] / "AGENTS.md").write_bytes(b"tampered before publish\n")
+
+        code, report = self.module.install_release(
+            self.archive,
+            VERSION,
+            self.expected_sha256(),
+            target,
+            event_hook=change_agents_after_manifest,
+        )
+
+        self.assertEqual(code, 7)
+        self.assertEqual(report["status"], "FAIL")
+        self.assertFalse(target.exists())
+
+    def test_staged_version_bytes_are_checked_for_new_and_existing_targets(self) -> None:
+        for case in ("new", "empty"):
+            with self.subTest(case=case):
+                target = self.root / f"changed-version-{case}"
+                if case == "empty":
+                    target.mkdir()
+
+                def change_version_after_write(event: str) -> None:
+                    if event != "version_created":
+                        return
+                    stages = list(self.root.glob(".iskin-stage-*"))
+                    self.assertEqual(len(stages), 1)
+                    (stages[0] / ".iskin" / "version").write_bytes(b"0.3.0\r\n")
+
+                code, report = self.module.install_release(
+                    self.archive,
+                    VERSION,
+                    self.expected_sha256(),
+                    target,
+                    event_hook=change_version_after_write,
+                )
+
+                self.assertEqual(code, 7)
+                self.assertEqual(report["status"], "FAIL")
+                if case == "new":
+                    self.assertFalse(target.exists())
+                else:
+                    self.assertEqual(tree_snapshot(target), {})
+
+    def test_manifest_created_then_hook_failure_rolls_back_manifest(self) -> None:
+        target = self.root / "manifest-hook-failure"
+        target.mkdir()
+
+        def fail_after_manifest(event: str) -> None:
+            if event == "installation_manifest_created":
+                raise OSError("injected post-manifest failure")
+
+        code, report = self.module.install_release(
+            self.archive,
+            VERSION,
+            self.expected_sha256(),
+            target,
+            event_hook=fail_after_manifest,
+        )
+
+        self.assertEqual(code, 7)
+        self.assertEqual(report["status"], "FAIL")
+        self.assertEqual(tree_snapshot(target), {})
+
+    def test_incomplete_rollback_is_reported_with_remaining_paths(self) -> None:
+        target = self.root / "incomplete-rollback"
+        target.mkdir()
+        remaining_path: Path | None = None
+
+        def replace_transferred_file_with_directory(event: str) -> None:
+            nonlocal remaining_path
+            if event != "template_file_transferred" or remaining_path is not None:
+                return
+            transferred = sorted(path for path in target.rglob("*") if path.is_file())
+            self.assertTrue(transferred)
+            remaining_path = transferred[0]
+            remaining_path.unlink()
+            remaining_path.mkdir()
+
+        code, report = self.module.install_release(
+            self.archive,
+            VERSION,
+            self.expected_sha256(),
+            target,
+            event_hook=replace_transferred_file_with_directory,
+            fail_after_files=1,
+        )
+
+        self.assertEqual(code, 7)
+        self.assertEqual(report["status"], "FAIL")
+        self.assertEqual(report["checks"][-1]["name"], "rollback_incomplete")
+        self.assertIn(str(remaining_path), report["checks"][-1]["detail"])
+        self.assertTrue(remaining_path is not None and remaining_path.is_dir())
 
     def test_manifest_is_created_last(self) -> None:
         target = self.root / "event-project"

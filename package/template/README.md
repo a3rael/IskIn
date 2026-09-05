@@ -2,7 +2,7 @@
 
 Шаблон устанавливает универсальный процесс agent-native PDLC и интеграцию с Hermes Agent и Hermes Desktop Project.
 
-После установки Hermes предлагает и оформляет черновики `intent`, `outcomes`, `uncertainties`, quality gates, evidence scopes и product-specific runners. Владелец проекта подтверждает их значимые части и добавляет фактические evidence и telemetry.
+После установки Hermes предлагает и оформляет черновики `intent`, `outcomes`, `uncertainties`, quality gates, evidence scopes и product-specific runners. В пределах своих полномочий Hermes собирает и записывает фактические evidence и telemetry.
 
 Человек утверждает продуктовую цель, критерии результата, значимые продуктовые решения, изменения process policy и финальный acceptance. Пользователь не обязан вручную проектировать гейты или заполнять процессные документы: Hermes должен подготовить черновик и вынести на human gate только требующие решения вопросы.
 
@@ -39,4 +39,4 @@ hermes skills trust
 - `challenge-result`;
 - `control-pilot`.
 
-Различай три состояния: файл `SKILL.md` присутствует; навык показан как `local/enabled`; навык фактически загружается по имени в runtime текущей сессии. `hermes skills list` недостаточен, если загрузка по имени завершается `Skill not found`. При относительном `TERMINAL_CWD=./workspace` и неудачной загрузке это известное ограничение Hermes Desktop v0.3, а не подтверждение подключения.
+Различай три состояния: файл `SKILL.md` присутствует; навык показан как `local/enabled`; навык фактически загружается по имени в runtime текущей сессии. `hermes skills list` недостаточен, если загрузка по имени завершается `Skill not found`. При относительном `TERMINAL_CWD=./workspace` и неудачной загрузке это известный случай несовместимости Hermes Desktop v0.3, а не подтверждение подключения; само относительное значение не доказывает причину сбоя.

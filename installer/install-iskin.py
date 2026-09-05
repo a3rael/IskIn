@@ -500,21 +500,18 @@ def _mkdir_no_symlink(path: Path, created_dirs: list[Path]) -> None:
     created_dirs.append(path)
 
 
-def _write_exclusive(path: Path, data: bytes) -> None:
+def _write_exclusive(path: Path, data: bytes, created_files: list[Path] | None = None) -> None:
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
     try:
         descriptor = os.open(path, flags, 0o644)
     except OSError as exc:
         raise InstallationFailure("write_file", f"cannot create {path}: {exc}") from exc
+    if created_files is not None:
+        created_files.append(path)
     try:
         with os.fdopen(descriptor, "wb") as handle:
             handle.write(data)
     except OSError as exc:
-        try:
-            if path.is_file() and not path.is_symlink():
-                path.unlink()
-        except OSError:
-            pass
         raise InstallationFailure("write_file", f"cannot write {path}: {exc}") from exc
 
 
@@ -550,35 +547,49 @@ def _verify_template_tree(stage: Path, package: ReleasePackage) -> None:
         raise InstallationFailure("staging_allowlist", f"staging mismatch; missing={missing}, extra={extra}")
 
 
-def _write_version(base: Path, package: ReleasePackage, event_hook: EventHook | None) -> Path:
+def _write_version(
+    base: Path,
+    package: ReleasePackage,
+    event_hook: EventHook | None,
+    created_files: list[Path] | None = None,
+) -> Path:
     metadata = base / ".iskin"
     dirs: list[Path] = []
     _mkdir_no_symlink(metadata, dirs)
     version_path = metadata / "version"
-    _write_exclusive(version_path, (package.release_version + "\n").encode("utf-8"))
+    _write_exclusive(
+        version_path,
+        (package.release_version + "\n").encode("utf-8"),
+        created_files,
+    )
     if event_hook:
         event_hook("version_created")
     return version_path
 
 
-def _installation_entries(base: Path, package: ReleasePackage) -> list[dict[str, str]]:
-    paths = sorted(list(package.template_files) + [".iskin/version"])
-    entries: list[dict[str, str]] = []
-    for relative in paths:
-        path = base / Path(relative)
-        if path.is_symlink() or not path.is_file():
-            raise InstallationFailure("metadata_source", f"installed file is missing or symlinked: {relative}")
-        entries.append({"path": relative, "sha256": _sha256_file(path)})
-    return entries
+def _expected_installation_files(package: ReleasePackage) -> dict[str, bytes]:
+    return {
+        **package.template_files,
+        ".iskin/version": (package.release_version + "\n").encode("utf-8"),
+    }
+
+
+def _installation_entries(package: ReleasePackage) -> list[dict[str, str]]:
+    expected_files = _expected_installation_files(package)
+    return [
+        {"path": relative, "sha256": _sha256_bytes(expected_files[relative])}
+        for relative in sorted(expected_files)
+    ]
 
 
 def _write_installation_manifest(
     base: Path,
     package: ReleasePackage,
     event_hook: EventHook | None,
+    created_files: list[Path] | None = None,
 ) -> Path:
     manifest_path = base / ".iskin" / "installation-manifest.json"
-    entries = _installation_entries(base, package)
+    entries = _installation_entries(package)
     payload = {
         "schema_version": 1,
         "release_version": package.release_version,
@@ -588,6 +599,7 @@ def _write_installation_manifest(
     _write_exclusive(
         manifest_path,
         (json.dumps(payload, ensure_ascii=False, indent=2) + "\n").encode("utf-8"),
+        created_files,
     )
     if event_hook:
         event_hook("installation_manifest_created")
@@ -613,10 +625,10 @@ def _transfer_new_files(
         _mkdir_no_symlink(destination.parent, created_dirs)
         try:
             os.link(source, destination, follow_symlinks=False)
+            created_files.append(destination)
             source.unlink()
         except OSError as exc:
             raise InstallationFailure("transfer", f"cannot transfer {relative}: {exc}") from exc
-        created_files.append(destination)
         transferred += 1
         if event_hook:
             event_hook("template_file_transferred")
@@ -629,14 +641,29 @@ def _run_git_init(target: Path, created_roots: list[Path]) -> None:
     if git_path.exists() or git_path.is_symlink():
         raise InstallationFailure("git_race", ".git appeared before --init-git")
 
-    def remove_partial_git() -> None:
+    def remove_partial_git() -> list[str]:
+        issues: list[str] = []
         try:
             if git_path.is_symlink() or git_path.is_file():
                 git_path.unlink()
             elif git_path.is_dir():
                 shutil.rmtree(git_path)
-        except OSError:
-            pass
+            elif git_path.exists():
+                issues.append(f"cannot remove partial .git: unexpected path type: {git_path}")
+        except OSError as exc:
+            issues.append(f"cannot remove partial .git {git_path}: {exc}")
+        if git_path.exists() or git_path.is_symlink():
+            issues.append(f"remaining_paths={git_path}")
+        return issues
+
+    def raise_git_init_failure(detail: str, cause: BaseException | None = None) -> None:
+        cleanup_issues = remove_partial_git()
+        if cleanup_issues:
+            detail += "; rollback incomplete: " + "; ".join(cleanup_issues)
+        failure = InstallationFailure("git_init", detail)
+        if cause is not None:
+            raise failure from cause
+        raise failure
 
     try:
         result = subprocess.run(
@@ -646,14 +673,11 @@ def _run_git_init(target: Path, created_roots: list[Path]) -> None:
             text=True,
         )
     except OSError as exc:
-        remove_partial_git()
-        raise InstallationFailure("git_init", f"cannot execute git init: {exc}") from exc
+        raise_git_init_failure(f"cannot execute git init: {exc}", exc)
     if result.returncode != 0:
-        remove_partial_git()
-        raise InstallationFailure("git_init", "git init failed")
+        raise_git_init_failure("git init failed")
     if git_path.is_symlink() or not git_path.is_dir():
-        remove_partial_git()
-        raise InstallationFailure("git_init", "git init did not create a regular .git directory")
+        raise_git_init_failure("git init did not create a regular .git directory")
     created_roots.append(git_path)
 
 
@@ -700,14 +724,26 @@ def _validate_installation_manifest(base: Path, package: ReleasePackage) -> None
         missing = sorted(expected_paths - set(observed))
         extra = sorted(set(observed) - expected_paths)
         raise InstallationFailure("installation_manifest", f"installed file list mismatch; missing={missing}, extra={extra}")
-    for relative, expected_digest in observed.items():
+    expected_files = _expected_installation_files(package)
+    expected_entries = {
+        item["path"]: item["sha256"] for item in _installation_entries(package)
+    }
+    for relative, expected_digest in expected_entries.items():
+        if observed[relative] != expected_digest:
+            raise InstallationFailure("installation_manifest", f"installation SHA-256 differs from release: {relative}")
         path = base / Path(relative)
-        if path.is_symlink() or not path.is_file() or _sha256_file(path) != expected_digest:
+        if path.is_symlink() or not path.is_file():
+            raise InstallationFailure("installation_manifest", f"installed file is missing or symlinked: {relative}")
+        try:
+            actual_bytes = path.read_bytes()
+        except OSError as exc:
+            raise InstallationFailure("installation_manifest", f"cannot read installed file: {relative}: {exc}") from exc
+        if actual_bytes != expected_files[relative]:
             raise InstallationFailure("installation_manifest", f"installed SHA-256 mismatch: {relative}")
 
     version_path = base / ".iskin" / "version"
-    if version_path.read_text(encoding="utf-8").strip() != package.release_version:
-        raise InstallationFailure("version", ".iskin/version does not match release")
+    if version_path.read_bytes() != expected_files[".iskin/version"]:
+        raise InstallationFailure("version", ".iskin/version does not match release bytes")
 
 
 def validate_installation_manifest(base: Path, package: ReleasePackage) -> None:
@@ -719,32 +755,63 @@ def _cleanup_created(
     created_files: list[Path],
     created_dirs: list[Path],
     created_roots: list[Path],
-) -> None:
+) -> list[str]:
+    issues: list[str] = []
     for path in reversed(created_files):
         try:
             if path.is_symlink() or path.is_file():
                 path.unlink()
-        except OSError:
-            pass
+            elif path.exists():
+                issues.append(f"cannot remove created path {path}: unexpected path type")
+        except OSError as exc:
+            issues.append(f"cannot remove created file {path}: {exc}")
     for path in reversed(created_roots):
         try:
             if path.is_symlink() or path.is_file():
                 path.unlink()
             elif path.is_dir():
                 shutil.rmtree(path)
-        except OSError:
-            pass
+            elif path.exists():
+                issues.append(f"cannot remove created root {path}: unexpected path type")
+        except OSError as exc:
+            issues.append(f"cannot remove created root {path}: {exc}")
     for path in sorted(created_dirs, key=lambda item: len(item.parts), reverse=True):
         try:
             if path.is_dir() and not path.is_symlink():
                 path.rmdir()
-        except OSError:
-            pass
+            elif path.exists():
+                issues.append(f"cannot remove created directory {path}: unexpected path type")
+        except OSError as exc:
+            issues.append(f"cannot remove created directory {path}: {exc}")
+    remaining = sorted(
+        {
+            str(path)
+            for path in [*created_files, *created_roots, *created_dirs]
+            if path.exists() or path.is_symlink()
+        }
+    )
+    if remaining:
+        issues.append("remaining_paths=" + ", ".join(remaining))
+    return issues
 
 
 def _remove_stage(stage: Path | None) -> None:
     if stage is not None and stage.exists() and not stage.is_symlink():
         shutil.rmtree(stage)
+
+
+def _cleanup_published_target(target: Path) -> list[str]:
+    issues: list[str] = []
+    try:
+        if target.is_dir() and not target.is_symlink():
+            shutil.rmtree(target)
+        elif target.exists() or target.is_symlink():
+            issues.append(f"cannot remove published target {target}: unexpected path type")
+    except OSError as exc:
+        issues.append(f"cannot remove published target {target}: {exc}")
+    if target.exists() or target.is_symlink():
+        issues.append(f"remaining_paths={target}")
+    return issues
 
 
 def _install_package(
@@ -794,8 +861,7 @@ def _install_package(
         _transfer_new_files(target, stage, package, created_files, created_dirs, event_hook, fail_after_files)
         if init_git and mode == "empty":
             _run_git_init(target, created_roots)
-        _write_installation_manifest(target, package, event_hook)
-        created_files.append(target / ".iskin" / "installation-manifest.json")
+        _write_installation_manifest(target, package, event_hook, created_files)
         _validate_installation_manifest(target, package)
         if original_git_snapshot is not None and _snapshot_path(target / ".git") != original_git_snapshot:
             raise InstallationFailure("git_modified", "existing .git changed during installation")
@@ -807,15 +873,18 @@ def _install_package(
             "target_mode": mode,
             "git_initialized": bool(init_git and mode == "empty"),
         }
-    except Exception:
+    except Exception as exc:
+        rollback_issues: list[str]
         if published_new_target:
-            try:
-                if target.is_dir() and not target.is_symlink():
-                    shutil.rmtree(target)
-            except OSError:
-                pass
+            rollback_issues = _cleanup_published_target(target)
         else:
-            _cleanup_created(created_files, created_dirs, created_roots)
+            rollback_issues = _cleanup_created(created_files, created_dirs, created_roots)
+        if rollback_issues:
+            detail = "; ".join(rollback_issues)
+            raise InstallationFailure(
+                "rollback_incomplete",
+                f"installation failed: {exc}; rollback incomplete: {detail}",
+            ) from exc
         raise
     finally:
         _remove_stage(stage)
