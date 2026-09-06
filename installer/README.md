@@ -35,14 +35,20 @@ python3 install-iskin.py \\
 
 `--init-git` по умолчанию выключен. При его явном указании установщик может выполнить `git init`, но не создаёт commit, remote, branch ref, tag и не выполняет push. Target должен быть новой, пустой или `.git`-only папкой; сам target и `.git` не могут быть симлинками.
 
-После успешной установки установщик печатает точную ручную последовательность:
+После успешной установки package с project-local skills установщик печатает точную ручную последовательность:
 
 ```text
 cd <project-root>
 hermes skills trust
 ```
 
-Установщик не запускает `hermes skills trust` сам. Эта команда изменяет доверенное runtime-состояние Hermes; после неё требуется полный перезапуск Hermes Desktop и новая сессия. Наличие файла навыка или успешный `hermes skills list` не заменяют runtime-проверку загрузки по имени. Полный сценарий находится в `docs/integration/hermes-desktop.md`.
+Установщик не запускает `hermes skills trust` сам. Эта команда изменяет доверенное runtime-состояние Hermes; после неё требуется полный перезапуск Hermes Desktop и новая сессия. Наличие файла навыка или успешный `hermes skills list` не заменяют runtime-проверку загрузки по имени. Полный сценарий находится в `docs/integration/hermes-desktop.md`. Для package без project-local skills действует отдельный global-runtime режим ниже.
+
+## Режимы package v0.4
+
+Для package без project-local skills v0.4 установщик не печатает `hermes skills trust`. Он сообщает, что проект использует global runtime ИскИн, global bundle должен быть установлен отдельно, а фактическую доступность нужно проверить в новой сессии Hermes. Installer не вызывает Hermes, не меняет profile, configuration, trust или gateway и не устанавливает global skills.
+
+Режим выбирается по точному составу проверенного manifest: наличие файла под `.hermes/skills/` или `.agents/skills/` сохраняет прежний ручной trust handoff. Похожий путь вне этих каталогов режим не включает. Полный decision: `docs/decisions/2026-09-06-v0.4-installer-runtime-mode.md`.
 
 ## Локальный generator release-комплекта
 

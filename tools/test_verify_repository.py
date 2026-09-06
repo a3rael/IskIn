@@ -84,6 +84,57 @@ class VerifyRepositoryTests(unittest.TestCase):
         self.assertIn("files expected=", result.detail)
         self.assertIn("symlinks=", result.detail)
 
+    def test_v04_template_contract_requires_global_runtime_and_recovery(self) -> None:
+        (self.template / "AGENTS.md").write_text(
+            "Start with global `iskin-control-pilot`; recovery uses `iskin-understand-state`. "
+            "Read `runtime/skills/`, `product-memory/`, and `telemetry/`; "
+            "use `process/git-checkpoint-recovery.md`; Git is mandatory.\n",
+            encoding="utf-8",
+        )
+        recovery = self.template / "process" / "git-checkpoint-recovery.md"
+        recovery.parent.mkdir(parents=True)
+        recovery.write_text(
+            "# Git checkpoint and recovery\n\n"
+            "## Clean tree\nHEAD is the last stable checkpoint for the active outcome, lifecycle, evidence, and next action.\n\n"
+            "## Dirty tree\ndirty means an interruption is possible; investigate changes, read-back side effects, and never blindly reset, delete, stage, or commit.\n\n"
+            "## Checkpoint commit\nAfter a verified transition and read-back, check git diff --cached --check.\n\n"
+            "## Skill bundle\nRecord skill bundle revision; a textual skill change alone does not invalidate evidence. Stop on incompatible contracts and do not use automatic update.\n",
+            encoding="utf-8",
+        )
+
+        valid = verifier.check_template_contract()
+
+        self.assertTrue(valid.passed, valid.detail)
+        (self.template / "AGENTS.md").write_text("run `hermes skills trust`\n", encoding="utf-8")
+        invalid = verifier.check_template_contract()
+        self.assertFalse(invalid.passed)
+        self.assertIn("trust", invalid.detail)
+
+    def test_v04_template_rejects_project_local_skill_trees(self) -> None:
+        result = verifier.check_skills()
+        self.assertTrue(result.passed, result.detail)
+        local = self.template / ".agents" / "skills"
+        local.mkdir(parents=True)
+        (local / "unexpected.md").write_text("local", encoding="utf-8")
+        result = verifier.check_skills()
+        self.assertFalse(result.passed)
+        self.assertIn("project-local skill trees", result.detail)
+
+    def test_historical_v03_missing_links_are_narrowly_allowlisted(self) -> None:
+        source = self.root / "docs" / "decisions" / "2026-09-06-v0.3-proved-accepted-boundary.md"
+        source.parent.mkdir(parents=True)
+        source.write_text(
+            "[`old change`](package/template/.hermes/skills/change-product/SKILL.md)\n"
+            "[`old proof`](package/template/.hermes/skills/prove-result/SKILL.md)\n",
+            encoding="utf-8",
+        )
+        valid = verifier.check_internal_links()
+        self.assertTrue(valid.passed, valid.detail)
+        source.write_text(source.read_text(encoding="utf-8") + "[`bad`](package/template/missing.md)\n", encoding="utf-8")
+        invalid = verifier.check_internal_links()
+        self.assertFalse(invalid.passed)
+        self.assertIn("package/template/missing.md", invalid.detail)
+
     def test_ignored_ds_store_outside_template_is_not_a_temporary_artifact(self) -> None:
         (self.root / ".gitignore").write_text(".DS_Store\n", encoding="utf-8")
         (self.root / ".DS_Store").write_bytes(b"ignored")

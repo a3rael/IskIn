@@ -94,9 +94,9 @@ class InstallIskinTests(unittest.TestCase):
             command.append("--init-git")
         return subprocess.run(command, cwd=self.root, text=True, capture_output=True, check=False)
 
-    def assert_installed(self, target: Path) -> None:
+    def assert_installed(self, target: Path, payload: dict[str, bytes] | None = None) -> None:
         self.assertTrue(target.is_dir())
-        payload = template_payload()
+        payload = template_payload() if payload is None else payload
         for relative, data in payload.items():
             installed = target / relative
             self.assertTrue(installed.is_file(), relative)
@@ -464,14 +464,65 @@ class InstallIskinTests(unittest.TestCase):
         self.assertTrue((target / ".git").is_dir())
         self.assert_installed(target)
 
-    def test_success_message_prints_manual_skill_trust_step(self) -> None:
-        target = self.root / "manual-trust-project"
+    def test_global_runtime_message_omits_manual_skill_trust_step(self) -> None:
+        target = self.root / "global-runtime-project"
+        result = self.run_cli(CANONICAL, target)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("hermes skills trust", result.stdout)
+        self.assertIn("global ИскИн runtime", result.stdout)
+        self.assertIn("new Hermes session", result.stdout)
+        self.assertIn("did not change global Hermes state", result.stdout)
+        self.assert_installed(target)
+
+    def test_project_local_package_preserves_manual_skill_trust_message(self) -> None:
+        payload = template_payload()
+        payload[".hermes/skills/example/SKILL.md"] = b"---\nname: example\n---\n"
+        self.archive = build_release(self.release_dir, payload=payload)
+        target = self.root / "project-local-skills"
         result = self.run_cli(CANONICAL, target)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("[NEXT] Run manually; the installer does not execute this command:", result.stdout)
-        self.assertIn(f"cd {target}", result.stdout)
         self.assertIn("hermes skills trust", result.stdout)
         self.assertIn("changes Hermes trusted runtime state", result.stdout)
+        self.assert_installed(target, payload)
+
+    def test_agents_project_local_package_preserves_manual_skill_trust_message(self) -> None:
+        payload = template_payload()
+        payload[".agents/skills/example/SKILL.md"] = b"---\nname: example\n---\n"
+        self.archive = build_release(self.release_dir, payload=payload)
+        target = self.root / "agents-project-local-skills"
+        result = self.run_cli(CANONICAL, target)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("hermes skills trust", result.stdout)
+        self.assert_installed(target, payload)
+
+    def test_similar_non_skill_path_does_not_enable_project_trust(self) -> None:
+        payload = template_payload()
+        payload["docs/.hermes/skills-like/SKILL.md"] = b"not a project skill\n"
+        self.archive = build_release(self.release_dir, payload=payload)
+        target = self.root / "similar-path-project"
+        result = self.run_cli(CANONICAL, target)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("hermes skills trust", result.stdout)
+        self.assertIn("global ИскИн runtime", result.stdout)
+        self.assert_installed(target, payload)
+
+    def test_global_runtime_message_does_not_call_hermes(self) -> None:
+        target = self.root / "no-hermes-call-project"
+        arguments = [
+            "--archive", str(self.archive),
+            "--release-version", VERSION,
+            "--expected-sha256", self.expected_sha256(),
+            "--target-path", str(target),
+        ]
+        with mock.patch.object(self.module.subprocess, "run", side_effect=AssertionError("unexpected subprocess")):
+            with mock.patch("builtins.print") as print_mock:
+                code = self.module.run_install_cli(arguments)
+        self.assertEqual(code, 0)
+        output = "\n".join(str(call.args[0]) for call in print_mock.call_args_list if call.args)
+        self.assertNotIn("hermes skills trust", output)
+        self.assertIn("global ИскИн runtime", output)
+        self.assert_installed(target)
 
     def test_standalone_copy_runs_without_repository_modules(self) -> None:
         standalone_dir = self.root / "standalone-release"

@@ -1,50 +1,25 @@
 # ИскИн в установленном проекте
 
-Этот файл — точка входа для Hermes Agent и Hermes Desktop Project. Он задаёт границы и указатели; подробные правила находятся в канонических документах ниже.
+Это короткая точка входа для Hermes Agent и Hermes Desktop Project. Навыки ИскИн v0.4 загружаются из глобального runtime; `runtime/skills/` — их канонический источник, а project-local copies отсутствуют намеренно.
 
-## Перед работой
+## Вход в проект и новая сессия
 
-1. Прочитай `process/operating-model.md`, чтобы восстановить четыре вида состояния и lifecycle.
-2. Прочитай `process/autonomy-policy.md` перед действием с побочным эффектом.
-3. Прочитай `process/action-selection.md` перед выбором следующего действия.
-4. Для проверки результата используй `process/quality-gates.md` и `process/evidence-provenance.md`.
-5. Состояние конкретного продукта находится в `product-memory/`; фактические циклы и ограничения Hermes — в `telemetry/`.
-6. Загрузи только утверждённые проектные навыки из `.hermes/skills/` и отдельно зафиксируй фактический runtime skill resolution.
-
-## Границы
-
-- Пакет универсален: в нём нет заранее заполненных product outcomes, quality gates, evidence, runner-ов или исторических статусов.
-- Hermes предлагает и оформляет черновики intent, outcomes, uncertainties, quality gates, evidence scopes и product-specific runners.
-- Человек утверждает продуктовую цель, критерии результата, значимые продуктовые решения, изменения process policy и финальный acceptance.
-- Пользователь не обязан вручную проектировать гейты или заполнять процессные документы; Hermes готовит черновики и показывает вопросы для human gate.
-- Product/toolchain-specific код и команды принадлежат установленному проекту, а не этому шаблону.
-- Наличие файла навыка не доказывает его runtime-доступность в текущей сессии Hermes.
-- Hermes может перевести outcome в `proved` только после прохождения всех заранее утверждённых обязательных product gates, создания канонического evidence и proof-record и успешного fingerprint checkpoint актуальности scope; `proved` является выводом из доказательств и не требует отдельного human acceptance.
-- Только человек или заранее утверждённое правило может перевести outcome в `accepted`; Hermes не выставляет `accepted` без такого разрешения.
-- Не подменяй каноническое evidence временным выводом, mock-проверкой или заявлением агента.
+1. Начни с глобального `iskin-control-pilot`.
+2. Выполни recovery preflight через `iskin-understand-state`.
+3. Каноническое состояние читай из Git, `product-memory/`, evidence и `telemetry/`; transcript Hermes используй только как вспомогательный источник.
+4. При отсутствии global skills ИскИн или структуры проекта сообщи конкретный blocker до изменения продукта; вне структуры ИскИн навык неприменим.
 
 ## Канонические источники
 
-| Правило или состояние | Источник |
-|---|---|
-| Виды состояния и lifecycle | `process/operating-model.md` |
-| Полномочия и human gates | `process/autonomy-policy.md` |
-| Приоритет следующего действия | `process/action-selection.md` |
-| Product gates и challenge по риску | `process/quality-gates.md` |
-| Manifest, report, proof-record и invalidation | `process/evidence-provenance.md` |
-| Intent, outcomes, uncertainties, decisions и evidence | соответствующие файлы `product-memory/` |
-| Определения telemetry | `telemetry/metrics.md` |
-| Фактические циклы и ограничения Hermes | `telemetry/run-log.md` |
+- Виды состояния и lifecycle: `process/operating-model.md`.
+- Полномочия и human gates: `process/autonomy-policy.md`.
+- Выбор следующего действия: `process/action-selection.md`.
+- Product gates и evidence: `process/quality-gates.md`, `process/evidence-provenance.md`.
+- Git checkpoint и recovery: `process/git-checkpoint-recovery.md`.
+- Определения telemetry: `telemetry/metrics.md`; фактические циклы: `telemetry/run-log.md`.
 
-## Утверждённые навыки
+## Git и полномочия
 
-- `understand-state`
-- `choose-next-action`
-- `change-product`
-- `prove-result`
-- `challenge-result`
-- `control-pilot`
+Git — обязательная инфраструктура. Локальный checkpoint commit создаётся только после законченного проверенного перехода и согласованного read-back состояния. Remote, push, tag, merge и публикация требуют отдельного human decision. Полный контракт находится в `process/git-checkpoint-recovery.md`.
 
-## После существенного цикла
-
-Выполни `control-pilot`: сверь outcome status и cycle closure, обязательные gates, provenance, skill resolution, intervention events, ограничения Hermes и следующий разрешённый шаг. При drift сохрани старое evidence, создай `invalidation_event` и переведи outcome в `reopened`, `evidence-pending` или `blocked` по фактическому состоянию.
+Не выполняй установку или доверие project-local skills для v0.4: global runtime bundle должен быть установлен заранее. Не изменяй продукт при неподтверждённой применимости, неизвестном external result или несогласованном dirty tree.

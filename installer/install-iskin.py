@@ -574,6 +574,11 @@ def _expected_installation_files(package: ReleasePackage) -> dict[str, bytes]:
     }
 
 
+def _package_has_project_local_skills(package: ReleasePackage) -> bool:
+    prefixes = (".hermes/skills/", ".agents/skills/")
+    return any(path.startswith(prefix) for path in package.template_files for prefix in prefixes)
+
+
 def _installation_entries(package: ReleasePackage) -> list[dict[str, str]]:
     expected_files = _expected_installation_files(package)
     return [
@@ -855,6 +860,7 @@ def _install_package(
                 "archive_sha256": package.archive_sha256,
                 "target_mode": "new",
                 "git_initialized": init_git,
+                "project_local_skills": _package_has_project_local_skills(package),
             }
 
         _write_version(stage, package, event_hook)
@@ -872,6 +878,7 @@ def _install_package(
             "archive_sha256": package.archive_sha256,
             "target_mode": mode,
             "git_initialized": bool(init_git and mode == "empty"),
+            "project_local_skills": _package_has_project_local_skills(package),
         }
     except Exception as exc:
         rollback_issues: list[str]
@@ -907,6 +914,7 @@ def install_release(
         "status": "FAIL",
         "exit_code": EXIT_USAGE,
         "target_mode": None,
+        "project_local_skills": None,
         "release_version": expected_version,
         "checks": [],
     }
@@ -988,10 +996,16 @@ def run_install_cli(argv: Iterable[str] | None = None) -> int:
     if code == EXIT_OK:
         print("[PASS] installation_manifest: created last and verified")
         target = _normalise_path(args.target_path)
-        print("[NEXT] Run manually; the installer does not execute this command:")
-        print(f"cd {shlex.quote(str(target))}")
-        print("hermes skills trust")
-        print("[INFO] `hermes skills trust` changes Hermes trusted runtime state.")
+        if report["project_local_skills"]:
+            print("[NEXT] Run manually; the installer does not execute this command:")
+            print(f"cd {shlex.quote(str(target))}")
+            print("hermes skills trust")
+            print("[INFO] `hermes skills trust` changes Hermes trusted runtime state.")
+        else:
+            print("[NEXT] This project uses the global ИскИн runtime skills.")
+            print("[INFO] Install the global ИскИн runtime separately before product work.")
+            print("[INFO] Verify global skill availability in a new Hermes session.")
+            print("[INFO] The installer did not change global Hermes state.")
     return code
 
 

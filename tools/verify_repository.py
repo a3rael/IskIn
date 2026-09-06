@@ -30,6 +30,7 @@ EXPECTED_TEMPLATE_FILES = {
     "process/action-selection.md",
     "process/quality-gates.md",
     "process/evidence-provenance.md",
+    "process/git-checkpoint-recovery.md",
     "process/fixtures/provenance-drift/README.md",
     "process/fixtures/provenance-drift/template/manifest.json",
     "process/fixtures/provenance-drift/template/proof-record.json",
@@ -43,20 +44,6 @@ EXPECTED_TEMPLATE_FILES = {
     "telemetry/README.md",
     "telemetry/run-log.md",
     "telemetry/metrics.md",
-    ".hermes/skills/understand-state/SKILL.md",
-    ".hermes/skills/choose-next-action/SKILL.md",
-    ".hermes/skills/change-product/SKILL.md",
-    ".hermes/skills/prove-result/SKILL.md",
-    ".hermes/skills/challenge-result/SKILL.md",
-    ".hermes/skills/control-pilot/SKILL.md",
-}
-EXPECTED_SKILLS = {
-    "understand-state",
-    "choose-next-action",
-    "change-product",
-    "prove-result",
-    "challenge-result",
-    "control-pilot",
 }
 EXPECTED_RUNTIME_SKILLS = {
     "iskin-understand-state",
@@ -65,6 +52,16 @@ EXPECTED_RUNTIME_SKILLS = {
     "iskin-prove-result",
     "iskin-challenge-result",
     "iskin-control-pilot",
+}
+HISTORICAL_MISSING_LINKS = {
+    (
+        "docs/decisions/2026-09-06-v0.3-proved-accepted-boundary.md",
+        "package/template/.hermes/skills/change-product/SKILL.md",
+    ),
+    (
+        "docs/decisions/2026-09-06-v0.3-proved-accepted-boundary.md",
+        "package/template/.hermes/skills/prove-result/SKILL.md",
+    ),
 }
 RUNTIME_SKILL_VERSION = "0.4.0-dev"
 REQUIRED_RUNTIME_SKILL_TRIGGERS = {
@@ -142,7 +139,7 @@ def check_template_structure() -> Check:
     return _check(
         "template_structure",
         not missing and not unexpected,
-        f"27 expected files; missing={missing}, unexpected={unexpected}",
+        f"{len(EXPECTED_TEMPLATE_FILES)} expected files; missing={missing}, unexpected={unexpected}",
     )
 
 
@@ -179,31 +176,91 @@ def check_product_memory_empty() -> Check:
     return _check("product_memory_empty", not filled, f"filled_lines={filled}")
 
 
-def check_skills() -> Check:
-    skill_dirs = [path for path in (TEMPLATE / ".hermes/skills").iterdir() if path.is_dir()]
-    actual_names = {path.name for path in skill_dirs}
+def check_template_contract() -> Check:
+    agents = TEMPLATE / "AGENTS.md"
+    recovery = TEMPLATE / "process" / "git-checkpoint-recovery.md"
     errors: list[str] = []
-    if actual_names != EXPECTED_SKILLS:
-        errors.append(f"names expected={sorted(EXPECTED_SKILLS)}, actual={sorted(actual_names)}")
-    frontmatter_names: list[str] = []
-    for directory in skill_dirs:
-        path = directory / "SKILL.md"
-        if not path.is_file():
-            errors.append(f"missing={path.relative_to(ROOT)}")
-            continue
-        text = path.read_text(encoding="utf-8")
-        if not text.startswith("---") or text.count("---") < 2:
-            errors.append(f"frontmatter={path.relative_to(ROOT)}")
-        match = re.search(r"^name:\s*(\S+)", text, re.MULTILINE)
-        if not match:
-            errors.append(f"name={path.relative_to(ROOT)}")
-        else:
-            frontmatter_names.append(match.group(1))
-        if "Completion criterion:" not in text:
-            errors.append(f"completion_criterion={path.relative_to(ROOT)}")
-    if len(frontmatter_names) != len(set(frontmatter_names)):
-        errors.append("duplicate frontmatter names")
-    return _check("project_skills", not errors, f"skills={len(skill_dirs)}, errors={errors}")
+    try:
+        agents_text = agents.read_text(encoding="utf-8")
+        recovery_text = recovery.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        return _check("template_contract", False, f"cannot read contract: {exc}")
+
+    required_agents = (
+        "iskin-control-pilot",
+        "iskin-understand-state",
+        "runtime/skills/",
+        "process/git-checkpoint-recovery.md",
+        "product-memory/",
+        "telemetry/",
+        "Git",
+    )
+    for marker in required_agents:
+        if marker not in agents_text:
+            errors.append(f"AGENTS missing={marker}")
+
+    required_recovery = (
+        "HEAD",
+        "last stable checkpoint",
+        "active outcome",
+        "lifecycle",
+        "evidence",
+        "next action",
+        "dirty",
+        "interruption",
+        "read-back",
+        "side effects",
+        "reset",
+        "delete",
+        "stage",
+        "commit",
+        "verified transition",
+        "git diff --cached --check",
+        "skill bundle revision",
+        "textual skill change",
+        "incompatible",
+        "automatic update",
+    )
+    recovery_text_lower = recovery_text.lower()
+    for marker in required_recovery:
+        if marker.lower() not in recovery_text_lower:
+            errors.append(f"recovery missing={marker}")
+
+    for path in TEMPLATE.rglob("*.md"):
+        for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if "hermes skills trust" in line and not re.search(
+                r"не является|не выполняй|not an? (?:installation|setup) step|not required",
+                line,
+                re.IGNORECASE,
+            ):
+                errors.append(f"trust_installation={path.relative_to(ROOT)}:{line_number}")
+    return _check("template_contract", not errors, f"errors={errors}")
+
+
+def check_skills() -> Check:
+    present = [
+        path.relative_to(ROOT).as_posix()
+        for path in (TEMPLATE / ".hermes" / "skills", TEMPLATE / ".agents" / "skills")
+        if path.exists() or path.is_symlink()
+    ]
+    return _check(
+        "project_skills",
+        not present,
+        f"project-local skill trees expected=[]; present={present}",
+    )
+
+
+def check_telemetry_empty() -> Check:
+    path = TEMPLATE / "telemetry" / "run-log.md"
+    try:
+        filled = [
+            f"{path.relative_to(ROOT)}:{line_number}"
+            for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
+            if line.strip() and not line.lstrip().startswith("#") and not line.lstrip().startswith("<!--") and not line.rstrip().endswith("-->")
+        ]
+    except (OSError, UnicodeError) as exc:
+        return _check("telemetry_empty", False, f"cannot read telemetry: {exc}")
+    return _check("telemetry_empty", not filled, f"filled_lines={filled}")
 
 
 def check_runtime_skills() -> Check:
@@ -296,7 +353,9 @@ def check_internal_links() -> Check:
             continue
         checked += 1
         if not resolved.exists():
-            broken.append(f"{source.relative_to(ROOT)} -> {target}")
+            reference = (source.relative_to(ROOT).as_posix(), target)
+            if reference not in HISTORICAL_MISSING_LINKS:
+                broken.append(f"{reference[0]} -> {target}")
     return _check("internal_links", not broken, f"checked={checked}, broken={broken}")
 
 
@@ -358,6 +417,8 @@ def run_checks() -> list[Check]:
         check_template_symlinks(),
         check_json(),
         check_product_memory_empty(),
+        check_telemetry_empty(),
+        check_template_contract(),
         check_skills(),
         check_runtime_skills(),
         check_internal_links(),
