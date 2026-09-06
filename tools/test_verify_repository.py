@@ -120,6 +120,42 @@ class VerifyRepositoryTests(unittest.TestCase):
         self.assertFalse(result.passed)
         self.assertIn("project-local skill trees", result.detail)
 
+    def test_v04_template_gitignore_is_exact_and_enforced_by_git(self) -> None:
+        path = self.template / ".gitignore"
+        path.write_bytes(verifier.TEMPLATE_GITIGNORE.encode("utf-8"))
+
+        for relative in verifier.GITIGNORE_IGNORED_PATHS + verifier.GITIGNORE_VISIBLE_PATHS:
+            target = self.root / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(b"fixture")
+
+        result = verifier.check_template_gitignore()
+
+        self.assertTrue(result.passed, result.detail)
+        for relative in verifier.GITIGNORE_IGNORED_PATHS:
+            checked = subprocess.run(
+                ["git", "check-ignore", "--no-index", "--quiet", "--", relative],
+                cwd=self.root,
+                check=False,
+            )
+            self.assertEqual(checked.returncode, 0, relative)
+        for relative in verifier.GITIGNORE_VISIBLE_PATHS:
+            checked = subprocess.run(
+                ["git", "check-ignore", "--no-index", "--quiet", "--", relative],
+                cwd=self.root,
+                check=False,
+            )
+            self.assertNotEqual(checked.returncode, 0, relative)
+
+    def test_v04_template_gitignore_rejects_extra_rules_and_noncanonical_format(self) -> None:
+        path = self.template / ".gitignore"
+        path.write_bytes((verifier.TEMPLATE_GITIGNORE + "node_modules/\n").encode("utf-8"))
+
+        result = verifier.check_template_gitignore()
+
+        self.assertFalse(result.passed)
+        self.assertIn("approved LF contract", result.detail)
+
     def test_historical_v03_missing_links_are_narrowly_allowlisted(self) -> None:
         source = self.root / "docs" / "decisions" / "2026-09-06-v0.3-proved-accepted-boundary.md"
         source.parent.mkdir(parents=True)

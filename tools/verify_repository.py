@@ -13,6 +13,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
@@ -22,6 +23,7 @@ TEMPLATE = ROOT / "package" / "template"
 RUNTIME_SKILLS = ROOT / "runtime" / "skills"
 
 EXPECTED_TEMPLATE_FILES = {
+    ".gitignore",
     "AGENTS.md",
     "README.md",
     "process/README.md",
@@ -64,6 +66,40 @@ HISTORICAL_MISSING_LINKS = {
     ),
 }
 RUNTIME_SKILL_VERSION = "0.4.0-dev"
+TEMPLATE_GITIGNORE = (
+    "# Operating-system metadata\n"
+    ".DS_Store\n"
+    "._*\n"
+    "Thumbs.db\n"
+    "Desktop.ini\n"
+    "\n"
+    "# Editor temporary files\n"
+    "*.swp\n"
+    "*.swo\n"
+    "*~\n"
+)
+GITIGNORE_IGNORED_PATHS = (
+    "package/template/.DS_Store",
+    "package/template/nested/.DS_Store",
+    "package/template/._root-metadata",
+    "package/template/nested/._nested-metadata",
+    "package/template/Thumbs.db",
+    "package/template/nested/Thumbs.db",
+    "package/template/Desktop.ini",
+    "package/template/nested/Desktop.ini",
+    "package/template/editor.swp",
+    "package/template/nested/editor.swp",
+    "package/template/editor.swo",
+    "package/template/nested/editor.swo",
+    "package/template/backup~",
+    "package/template/nested/backup~",
+)
+GITIGNORE_VISIBLE_PATHS = (
+    "package/template/.env",
+    "package/template/.vscode/settings.json",
+    "package/template/build/example.txt",
+    "package/template/ordinary-untracked.txt",
+)
 REQUIRED_RUNTIME_SKILL_TRIGGERS = {
     "iskin-understand-state": "entering an IskIn project, starting a new session, recovering after interruption, or facing unclear state",
     "iskin-choose-next-action": "selecting exactly one next action after a confirmed IskIn state recovery",
@@ -140,6 +176,66 @@ def check_template_structure() -> Check:
         "template_structure",
         not missing and not unexpected,
         f"{len(EXPECTED_TEMPLATE_FILES)} expected files; missing={missing}, unexpected={unexpected}",
+    )
+
+
+def check_template_gitignore() -> Check:
+    path = TEMPLATE / ".gitignore"
+    errors: list[str] = []
+    try:
+        if path.is_symlink() or not path.is_file():
+            errors.append("missing or non-regular package/template/.gitignore")
+        elif path.read_bytes() != TEMPLATE_GITIGNORE.encode("utf-8"):
+            errors.append("package/template/.gitignore bytes are not the approved LF contract")
+    except (OSError, UnicodeError) as exc:
+        return _check("template_gitignore", False, f"cannot read .gitignore: {exc}")
+
+    if not errors:
+        try:
+            with tempfile.TemporaryDirectory(prefix="iskin-gitignore-probe-") as directory:
+                probe = Path(directory)
+                (probe / ".gitignore").write_bytes(TEMPLATE_GITIGNORE.encode("utf-8"))
+                init = subprocess.run(
+                    ["git", "init", "--quiet", str(probe)],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    check=False,
+                )
+                if init.returncode != 0:
+                    errors.append("isolated git probe could not initialize repository")
+                else:
+                    for relative in GITIGNORE_IGNORED_PATHS + GITIGNORE_VISIBLE_PATHS:
+                        target = probe / relative.removeprefix("package/template/")
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        target.write_bytes(b"probe")
+                    for relative in GITIGNORE_IGNORED_PATHS:
+                        probe_relative = relative.removeprefix("package/template/")
+                        result = subprocess.run(
+                            ["git", "check-ignore", "--no-index", "--quiet", "--", probe_relative],
+                            cwd=probe,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE,
+                            check=False,
+                        )
+                        if result.returncode != 0:
+                            errors.append(f"approved ignored path is visible: {relative}")
+                    for relative in GITIGNORE_VISIBLE_PATHS:
+                        probe_relative = relative.removeprefix("package/template/")
+                        result = subprocess.run(
+                            ["git", "check-ignore", "--no-index", "--quiet", "--", probe_relative],
+                            cwd=probe,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE,
+                            check=False,
+                        )
+                        if result.returncode == 0:
+                            errors.append(f"unapproved visible path is ignored: {relative}")
+        except OSError as exc:
+            errors.append(f"isolated git probe unavailable: {exc}")
+    return _check(
+        "template_gitignore",
+        not errors,
+        f"approved_patterns=7, ignored_paths={len(GITIGNORE_IGNORED_PATHS)}, visible_paths={len(GITIGNORE_VISIBLE_PATHS)}, errors={errors}",
     )
 
 
@@ -414,6 +510,7 @@ def check_secret_files_and_markers() -> Check:
 def run_checks() -> list[Check]:
     return [
         check_template_structure(),
+        check_template_gitignore(),
         check_template_symlinks(),
         check_json(),
         check_product_memory_empty(),
