@@ -15,6 +15,7 @@
 - `2026-09-06-v0.3-baseline-acceptance.md` — human decision о принятии ИскИн `0.3.0` как стабильной исходной версии и baseline для v0.4; U-003 остаётся неблокирующим ограничением.
 - `2026-09-06-v0.4-experiment-charter.md` — human decision об утверждённом направлении, сценарии, метриках и границах первого цикла v0.4.
 - `2026-09-06-v0.4-git-checkpoint-experiment.md` — human decision о Git-based checkpoint, recovery, global skills и совместимости первого эксперимента v0.4.
+- `2026-09-06-v0.4-runtime-skill-boundary.md` — human decision о namespaced global skill bundle, его IskIn-specific границе и единственном каноническом источнике `runtime/skills/`.
 - `2026-09-02-local-commit-policy.md` — утверждённая человеком development-only политика локальных коммитов репозитория ИскИн.
 
 Исторические решения Budget не являются решениями этого репозитория.

@@ -19,6 +19,7 @@ from typing import Iterable
 
 ROOT = Path(__file__).resolve().parents[1]
 TEMPLATE = ROOT / "package" / "template"
+RUNTIME_SKILLS = ROOT / "runtime" / "skills"
 
 EXPECTED_TEMPLATE_FILES = {
     "AGENTS.md",
@@ -57,6 +58,24 @@ EXPECTED_SKILLS = {
     "challenge-result",
     "control-pilot",
 }
+EXPECTED_RUNTIME_SKILLS = {
+    "iskin-understand-state",
+    "iskin-choose-next-action",
+    "iskin-change-product",
+    "iskin-prove-result",
+    "iskin-challenge-result",
+    "iskin-control-pilot",
+}
+RUNTIME_SKILL_VERSION = "0.4.0-dev"
+REQUIRED_RUNTIME_SKILL_TRIGGERS = {
+    "iskin-understand-state": "entering an IskIn project, starting a new session, recovering after interruption, or facing unclear state",
+    "iskin-choose-next-action": "selecting exactly one next action after a confirmed IskIn state recovery",
+    "iskin-change-product": "making one bounded change for an active IskIn outcome",
+    "iskin-prove-result": "collecting canonical evidence for an approved IskIn outcome",
+    "iskin-challenge-result": "an established challenge trigger requires independent critical review",
+    "iskin-control-pilot": "orchestrating an IskIn cycle or starting a new session",
+}
+RUNTIME_PRODUCT_DATA = re.compile(r"\bbudget\b|\bp\d+-\d+\b|\brun[-_ ]?\d+\b", re.IGNORECASE)
 FORBIDDEN_PACKAGE_CONTENT = re.compile(
     r"budget|p0-0[1-5]|\bg[1-5]\b|swift|xcode|xctest|xcuitest|budgetapp|₽|руб",
     re.IGNORECASE,
@@ -187,6 +206,56 @@ def check_skills() -> Check:
     return _check("project_skills", not errors, f"skills={len(skill_dirs)}, errors={errors}")
 
 
+def check_runtime_skills() -> Check:
+    actual_dirs = {path.name for path in RUNTIME_SKILLS.iterdir() if path.is_dir()} if RUNTIME_SKILLS.is_dir() else set()
+    actual_files = {
+        path.relative_to(RUNTIME_SKILLS).as_posix()
+        for path in RUNTIME_SKILLS.rglob("*")
+        if path.is_file()
+    } if RUNTIME_SKILLS.is_dir() else set()
+    expected_files = {f"{name}/SKILL.md" for name in EXPECTED_RUNTIME_SKILLS}
+    errors: list[str] = []
+    if actual_dirs != EXPECTED_RUNTIME_SKILLS:
+        errors.append(f"names expected={sorted(EXPECTED_RUNTIME_SKILLS)}, actual={sorted(actual_dirs)}")
+    if actual_files != expected_files:
+        errors.append(f"files expected={sorted(expected_files)}, actual={sorted(actual_files)}")
+
+    symlinks = [path.relative_to(ROOT).as_posix() for path in RUNTIME_SKILLS.rglob("*") if path.is_symlink()] if RUNTIME_SKILLS.is_dir() else []
+    if symlinks:
+        errors.append(f"symlinks={symlinks}")
+
+    frontmatter_names: list[str] = []
+    for name in sorted(EXPECTED_RUNTIME_SKILLS):
+        path = RUNTIME_SKILLS / name / "SKILL.md"
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8")
+        if not text.startswith("---") or text.count("---") < 2:
+            errors.append(f"frontmatter={path.relative_to(ROOT)}")
+            continue
+        frontmatter_name = re.search(r"^name:\s*(\S+)\s*$", text, re.MULTILINE)
+        if not frontmatter_name or frontmatter_name.group(1) != name:
+            errors.append(f"name={path.relative_to(ROOT)}")
+        else:
+            frontmatter_names.append(frontmatter_name.group(1))
+        version = re.search(r"^version:\s*(\S+)\s*$", text, re.MULTILINE)
+        if not version or version.group(1) != RUNTIME_SKILL_VERSION:
+            errors.append(f"version={path.relative_to(ROOT)}")
+        description = re.search(r'^description:\s*["\']?(.*?)["\']?\s*$', text, re.MULTILINE)
+        required_trigger = REQUIRED_RUNTIME_SKILL_TRIGGERS[name]
+        if not description or not description.group(1).startswith("Use when ") or required_trigger not in description.group(1):
+            errors.append(f"description={path.relative_to(ROOT)}")
+        if "Completion criterion:" not in text:
+            errors.append(f"completion_criterion={path.relative_to(ROOT)}")
+        if "process/" not in text:
+            errors.append(f"process_reference={path.relative_to(ROOT)}")
+        if RUNTIME_PRODUCT_DATA.search(text):
+            errors.append(f"product_data={path.relative_to(ROOT)}")
+    if len(frontmatter_names) != len(set(frontmatter_names)):
+        errors.append("duplicate frontmatter names")
+    return _check("runtime_skill_bundle", not errors, f"skills={len(actual_dirs)}, errors={errors}")
+
+
 def _resolve_reference(source: Path, target: str) -> Path | None:
     target = target.strip().strip("<>")
     if not target or "<" in target or ">" in target or any(char in target for char in "*?[") or target.startswith(("http://", "https://", "mailto:", "#")):
@@ -194,6 +263,8 @@ def _resolve_reference(source: Path, target: str) -> Path | None:
     if target.startswith((".hermes/", "process/", "product-memory/", "telemetry/")):
         historical_root = ROOT / "experiments" / "budget-ios" / "source"
         if TEMPLATE in source.parents:
+            return (TEMPLATE / target.rstrip("/" )).resolve()
+        if RUNTIME_SKILLS in source.parents:
             return (TEMPLATE / target.rstrip("/" )).resolve()
         if historical_root in source.parents:
             if target.startswith(".hermes/skills/"):
@@ -288,6 +359,7 @@ def run_checks() -> list[Check]:
         check_json(),
         check_product_memory_empty(),
         check_skills(),
+        check_runtime_skills(),
         check_internal_links(),
         check_forbidden_package_content(),
         check_forbidden_artifacts(),

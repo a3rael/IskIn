@@ -32,9 +32,9 @@
 
 ### Проектируемый эксперимент v0.4
 
-Первый v0.4 эксперимент использует Git-based product sandbox: проверенный локальный commit является durable checkpoint законченного перехода, а новая сессия восстанавливает состояние из Git и project state, не из transcript. Полная спецификация двух сценариев находится в `v0.4-git-checkpoint-experiment.md`; утверждённое решение — `../decisions/2026-09-06-v0.4-git-checkpoint-experiment.md`.
+Первый v0.4 эксперимент использует Git-based product sandbox: проверенный локальный commit является durable checkpoint законченного перехода, а новая сессия восстанавливает состояние из Git и project state, не из transcript. Полная спецификация двух сценариев и каноническая checkpoint model находятся в `v0.4-git-checkpoint-experiment.md`; утверждённое решение — `../decisions/2026-09-06-v0.4-git-checkpoint-experiment.md`.
 
-Этот контур не изменяет v0.3: его проектные навыки и установленный пакет остаются исходным baseline. Глобальные skills v0.4, installer и runtime-механизмы пока не реализованы.
+Global bundle v0.4 проектируется только в `runtime/skills/`; его граница зафиксирована в `../decisions/2026-09-06-v0.4-runtime-skill-boundary.md`. Bundle не установлен в Hermes. v0.3 project skills и установленный пакет остаются неизменным baseline.
 
 ## Правило единственного источника
 
