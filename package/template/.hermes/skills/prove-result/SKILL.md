@@ -18,6 +18,10 @@ Run the product's canonical commands and record gate, check, fixture, expected, 
 
 After execution, create a new versioned report and proof-record with the same `run_id`, manifest/report SHA-256 links, gate results and durable artifacts. Never overwrite an existing run.
 
-Before `proved`, before the next independent outcome and before changing a file in a proved scope, run the fingerprint checkpoint. On drift, preserve historical evidence, create an `invalidation_event` and keep the current outcome `evidence-pending` or `blocked`.
+Before `proved`, before the next independent outcome and before changing a file in a proved scope, run the fingerprint checkpoint. On drift, preserve historical evidence, create an `invalidation_event` and keep the current outcome `evidence-pending`, `reopened` or `blocked`.
 
-Completion criterion: every mandatory gate, artifact, provenance link, gap and deviation is recorded and read back.
+When every pre-approved mandatory product gate has passed, canonical evidence and the proof-record have been created and read back, and the mandatory fingerprint checkpoint confirms that the scope is current, Hermes may set the outcome to `proved`. This is an evidence-derived status and does not require a separate human acceptance. Do not set `accepted`; that status requires a human decision or a separately pre-approved rule.
+
+If evidence is incomplete, stale or contradictory, do not set `proved`; keep the outcome `evidence-pending`, `reopened` or `blocked` according to the actual state.
+
+Completion criterion: every mandatory gate, artifact, provenance link, gap and deviation is recorded and read back, and the outcome transition is limited to the evidence-supported status.
