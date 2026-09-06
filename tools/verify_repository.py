@@ -9,7 +9,9 @@ not write files or access the network.
 from __future__ import annotations
 
 import json
+import os
 import re
+import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -80,12 +82,38 @@ class Check:
     detail: str
 
 
+class RepositoryFileDiscoveryError(RuntimeError):
+    """Git could not provide the repository file inventory."""
+
+
 def _check(name: str, passed: bool, detail: str) -> Check:
     return Check(name, passed, detail)
 
 
 def _all_files() -> list[Path]:
-    return sorted(path for path in ROOT.rglob("*") if ".git" not in path.parts and path.is_file())
+    try:
+        result = subprocess.run(
+            ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
+            cwd=ROOT,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+    except OSError as exc:
+        raise RepositoryFileDiscoveryError(f"git file inventory unavailable: {exc}") from exc
+    if result.returncode != 0:
+        detail = os.fsdecode(result.stderr).strip() or "git ls-files returned a non-zero status"
+        raise RepositoryFileDiscoveryError(f"git file inventory unavailable: {detail}")
+
+    files: list[Path] = []
+    for raw_path in result.stdout.split(b"\0"):
+        if not raw_path:
+            continue
+        relative = Path(os.fsdecode(raw_path))
+        if relative.is_absolute() or ".." in relative.parts:
+            raise RepositoryFileDiscoveryError(f"git returned an unsafe path: {relative}")
+        files.append(ROOT / relative)
+    return sorted(files)
 
 
 def check_template_structure() -> Check:
@@ -215,7 +243,11 @@ def check_forbidden_package_content() -> Check:
 
 def check_forbidden_artifacts() -> Check:
     findings: list[str] = []
-    for path in _all_files():
+    try:
+        files = _all_files()
+    except RepositoryFileDiscoveryError as exc:
+        return _check("temporary_artifacts", False, str(exc))
+    for path in files:
         relative = path.relative_to(ROOT).as_posix()
         release_installer_copy = path.name == "install-iskin.py" and relative != "installer/install-iskin.py"
         if path.name == ".DS_Store" or path.name.startswith("._") or path.name in TEMP_FILE_NAMES or release_installer_copy or path.suffix.lower() in TEMP_FILE_SUFFIXES:
@@ -232,7 +264,11 @@ def check_unexpected_symlinks() -> Check:
 
 def check_secret_files_and_markers() -> Check:
     findings: list[str] = []
-    for path in _all_files():
+    try:
+        files = _all_files()
+    except RepositoryFileDiscoveryError as exc:
+        return _check("secret_private_data_heuristics", False, str(exc))
+    for path in files:
         if SECRET_FILE.fullmatch(path.name) and path.name != ".env.example":
             findings.append(path.relative_to(ROOT).as_posix())
             continue
