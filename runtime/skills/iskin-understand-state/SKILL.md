@@ -18,9 +18,11 @@ Confirm that the current repository has Git metadata and the IskIn project struc
 
 1. Read `process/operating-model.md`, `process/autonomy-policy.md`, and `process/evidence-provenance.md`.
 2. Inspect Git branch, `HEAD`, status, and diff without changing the index or worktree.
-3. Read product memory, evidence/proof records, and telemetry. Identify the active outcome, lifecycle, authority boundaries, last completed action, and next recorded action.
+3. Read product memory, evidence/proof records, and telemetry. Identify the active outcome, lifecycle, authority boundaries, last completed action, next recorded action, and approval state.
 4. If the worktree is clean, identify `HEAD` as the last stable checkpoint. If it is dirty, treat it as a possible interruption between checkpoints; separate confirmed changes from unknown effects and evidence gaps.
-5. Return a compact recovery snapshot: confirmed facts, unverified facts, active outcome/lifecycle, checkpoint state, blockers, authority boundaries, and information required before choosing an action.
+5. Report approval separately as `package absent|incomplete|prepared|approved`, direct question present|absent, durable event present|absent|inconsistent, and `implementation_authorized` granted|not granted. Never infer approval from transcript, a filled intent, an outcome status, a selected option, lack of objection, or a code diff.
+6. If product changes exist in a dirty tree without a confirmed approval event, classify the state as `process-blocked` and do not continue implementation, product proof, or checkpoint creation.
+7. Return a compact recovery snapshot: confirmed facts, unverified facts, active outcome/lifecycle, approval state, checkpoint state, blockers, authority boundaries, and information required before choosing an action.
 
 ## Authority boundary
 

@@ -8,6 +8,15 @@
 
 Она восстанавливает active outcome, lifecycle, последний завершённый шаг, evidence, authority boundaries и next action. Каждый факт помечается как подтверждённый или требующий проверки.
 
+Recovery отдельно проверяет approval state по существующим durable-источникам:
+
+- полный approval package: отсутствует | неполный | подготовлен | утверждён;
+- отдельный прямой вопрос с обеими частями: присутствует | отсутствует;
+- durable approval event: присутствует | отсутствует | противоречив;
+- `implementation_authorized`: `true` | не подтверждён.
+
+Approval нельзя выводить из transcript, заполненного intent, outcome status, выбранного варианта или существующего diff. Должны быть проверены `package_ref`, фактически заданный `question`, фактический `human_response`, `actor` и `implementation_authorized: true` в записи `product-memory/decisions.md`.
+
 ## Clean tree
 
 При clean tree `HEAD` — last stable checkpoint. Из проектных источников должны восстанавливаться active outcome, lifecycle, актуальное evidence и next action. Актуальное evidence не повторяется без evidence-significant причины.
@@ -17,6 +26,8 @@
 При dirty tree предполагается возможное прерывание (interruption) между checkpoint. Изменения сохраняются. Сначала определяется их фактическое состояние, выполняются read-back и проверка возможных side effects. Сессия различает завершённые и незавершённые действия и продолжает работу, перепроверяет её или эскалирует вопрос на основании фактов и полномочий.
 
 Слепые reset, delete, stage и commit запрещены. Нельзя автоматически откатывать или удалять незавершённые изменения.
+
+Если dirty tree содержит продуктовые изменения без подтверждённого approval event, recovery классифицирует состояние как `process-blocked`. Hermes не продолжает реализацию, не создаёт product proof или checkpoint-коммит и не удаляет, не откатывает и не stage-ит изменения. Он сохраняет наблюдаемые факты и эскалирует границу полномочий человеку.
 
 ## Checkpoint commit
 
