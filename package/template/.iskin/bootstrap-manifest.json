@@ -9,7 +9,7 @@
     },
     {
       "path": ".iskin/policy_gate.py",
-      "sha256": "a74bd29d628fd70a71ffdb96bdbfdfa3f7fd10f2f57528c730d9d6d5538a7f47"
+      "sha256": "704f582b410062d3c7196f5dcc66d3d24c81e403e1590280e88763b02929229e"
     },
     {
       "path": "AGENTS.md",
@@ -29,7 +29,7 @@
     },
     {
       "path": "process/autonomy-policy.md",
-      "sha256": "7e7b6e927fa2f2954cf75993c9016aafa1f45097b8870903a52e4b7fcbcf4cab"
+      "sha256": "c505822f0a4500af88c1c529eda57be9bf93d0417f007841e7075e2354c92637"
     },
     {
       "path": "process/evidence-provenance.md",
@@ -53,7 +53,7 @@
     },
     {
       "path": "process/git-checkpoint-recovery.md",
-      "sha256": "c933df0bd09dd491e3a3e58e2d6dcd3375bd44152052d455aa577db2b9b874ef"
+      "sha256": "7c4e2b8cf65a4ca9ad90078a127a344037408431d420e21ef534dea10c819738"
     },
     {
       "path": "process/operating-model.md",

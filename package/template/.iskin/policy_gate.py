@@ -32,6 +32,7 @@ BOOTSTRAP_MANIFEST_PATH = ".iskin/bootstrap-manifest.json"
 INSTALLATION_MANIFEST_PATH = ".iskin/installation-manifest.json"
 LEGACY_STATE_PATH = ".iskin/policy_state.json"
 CHECKPOINT_PREFIX = "iskin: pre-approval checkpoint:"
+BOOTSTRAP_COMMIT_SUBJECT = "chore: bootstrap iskin project baseline"
 EVENT_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{1,127}$")
 PACKAGE_ID_RE = EVENT_ID_RE
 CHECKPOINT_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
@@ -486,6 +487,13 @@ def _commit_subject(repo: Path, commit: str) -> str:
     return _git_stdout(repo, "show", "-s", "--format=%s", commit).strip()
 
 
+def _commit_parents(repo: Path, commit: str) -> tuple[str, ...]:
+    fields = _git_stdout(repo, "show", "-s", "--format=%P", commit).split()
+    if any(not CHECKPOINT_SHA_RE.fullmatch(parent) for parent in fields):
+        raise GateError("GIT_CHECK_FAILED")
+    return tuple(fields)
+
+
 def _is_ancestor(repo: Path, ancestor: str, descendant: str) -> bool:
     result = _run_git(repo, "merge-base", "--is-ancestor", ancestor, descendant)
     if result.returncode == 0:
@@ -595,9 +603,69 @@ def _package_drift(repo: Path, package_paths: Iterable[str], checkpoint: str) ->
     return False
 
 
-def _preapproval_product_changes(repo: Path, boundary: str) -> tuple[str, ...]:
+def _verified_bootstrap_commit(repo: Path, baseline: BootstrapBaseline) -> str:
+    candidates = [
+        commit
+        for commit in _commits(repo, "HEAD")
+        if _commit_subject(repo, commit) == BOOTSTRAP_COMMIT_SUBJECT
+    ]
+    if not candidates:
+        raise GateError("BOOTSTRAP_COMMIT_MISSING")
+    if len(candidates) != 1:
+        raise GateError("BOOTSTRAP_COMMIT_AMBIGUOUS")
+
+    commit = candidates[0]
+    if _commit_parents(repo, commit):
+        raise GateError("BOOTSTRAP_COMMIT_NOT_ROOT")
+
+    expected_paths = set(_bootstrap_paths(baseline))
+    changed_paths = set(_changed_paths(repo, commit))
+    added_paths = set(_added_paths(repo, commit))
+    if changed_paths != expected_paths or added_paths != expected_paths:
+        raise GateError("BOOTSTRAP_COMMIT_SCOPE_INVALID")
+
+    expected_hashes = dict(baseline.files)
+    for path in expected_paths:
+        committed = _commit_bytes(repo, commit, path)
+        expected = expected_hashes.get(path)
+        if expected is not None and _sha256_bytes(committed) != expected:
+            raise GateError("BOOTSTRAP_COMMIT_BASELINE_MISMATCH")
+        if path in {baseline.self_path, INSTALLATION_MANIFEST_PATH, ".iskin/version"}:
+            if committed != _read_regular(repo, path):
+                raise GateError("BOOTSTRAP_COMMIT_BASELINE_MISMATCH")
+    return commit
+
+
+def _commits_after(repo: Path, ancestor: str, descendant: str) -> tuple[str, ...]:
+    if not _is_ancestor(repo, ancestor, descendant):
+        raise GateError("BOOTSTRAP_COMMIT_ORDER_INVALID")
+    return tuple(
+        line
+        for line in _git_stdout(repo, "rev-list", "--reverse", f"{ancestor}..{descendant}").splitlines()
+        if line
+    )
+
+
+def _bootstrap_history_drift(repo: Path, baseline: BootstrapBaseline, bootstrap: str) -> tuple[str, ...]:
+    immutable_paths = {
+        path
+        for path in _bootstrap_paths(baseline)
+        if not path.startswith(("product-memory/", "telemetry/"))
+    }
     findings: set[str] = set()
-    for commit in _commits(repo, boundary):
+    head = _git_stdout(repo, "rev-parse", "HEAD").strip()
+    for commit in _commits_after(repo, bootstrap, head):
+        findings.update(set(_changed_paths(repo, commit)) & immutable_paths)
+    return tuple(sorted(findings))
+
+
+def _preapproval_product_changes(
+    repo: Path,
+    bootstrap: str,
+    boundary: str,
+) -> tuple[str, ...]:
+    findings: set[str] = set()
+    for commit in _commits_after(repo, bootstrap, boundary):
         findings.update(_product_or_evidence(_changed_paths(repo, commit)))
     return tuple(sorted(findings))
 
@@ -835,6 +903,11 @@ def _build_evaluation(repo: Path, action: str) -> Evaluation:
     _ensure_supported_project(repo)
     if not _head_exists(repo):
         return _build_bootstrap_evaluation(repo, action)
+    baseline = _load_bootstrap_manifest(repo)
+    _load_installation_manifest(repo, baseline)
+    bootstrap = _verified_bootstrap_commit(repo, baseline)
+    if _bootstrap_history_drift(repo, baseline, bootstrap):
+        return _blocked(None, "BOOTSTRAP_BASELINE_DRIFT")
     packages = _load_packages(repo)
     events_with_bytes = _load_events(repo)
     events = tuple(event for event, _ in events_with_bytes)
@@ -878,7 +951,7 @@ def _build_evaluation(repo: Path, action: str) -> Evaluation:
     checkpoint_product = _product_or_evidence(_changed_paths(repo, checkpoint))
     if checkpoint_product:
         return _blocked(package, "CHECKPOINT_CONTAINS_PRODUCT_OR_EVIDENCE", checkpoint=checkpoint, approval_state="prepared")
-    preapproval_product = _preapproval_product_changes(repo, checkpoint)
+    preapproval_product = _preapproval_product_changes(repo, bootstrap, checkpoint)
     if preapproval_product:
         return _blocked(package, "PRODUCT_OR_EVIDENCE_BEFORE_CHECKPOINT", checkpoint=checkpoint, approval_state="prepared")
 

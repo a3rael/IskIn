@@ -32,17 +32,16 @@ class PolicyGateExecutableTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory(prefix="iskin-policy-gate-")
         self.repo = Path(self.tempdir.name) / "project"
-        self.repo.mkdir()
+        shutil.copytree(TEMPLATE, self.repo)
         self._git("init", "--quiet")
         self._git("config", "user.name", "IskIn test")
         self._git("config", "user.email", "iskin-test@example.invalid")
-        self._write(".iskin/policy_gate.py", GATE.read_bytes())
-        self._write(REGISTRY, "# Registry\n")
-        self._write(DECISIONS, "# Решения\n")
-        self._write("product-memory/intent.md", "# Intent\n")
-        self._write("product-memory/outcomes.md", "# Outcomes\n")
-        self._write("product-memory/uncertainties.md", "# Uncertainties\n")
-        self._commit("baseline")
+        self._write_installation_metadata()
+        baseline = json.loads((self.repo / ".iskin" / "bootstrap-manifest.json").read_text(encoding="utf-8"))
+        paths = {entry["path"] for entry in baseline["files"]}
+        paths.update({baseline["self_path"], ".iskin/version", ".iskin/installation-manifest.json"})
+        self._git("add", "--", *sorted(paths))
+        self._git("commit", "--quiet", "-m", "chore: bootstrap iskin project baseline")
 
     def tearDown(self) -> None:
         self.tempdir.cleanup()
@@ -72,6 +71,28 @@ class PolicyGateExecutableTests(unittest.TestCase):
         self._git("add", "--", ".")
         self._git("commit", "--quiet", "-m", message)
         return self._git("rev-parse", "HEAD")
+
+    def _write_installation_metadata(self) -> None:
+        baseline = json.loads((self.repo / ".iskin" / "bootstrap-manifest.json").read_text(encoding="utf-8"))
+        version = baseline["release_version"]
+        self._write(".iskin/version", f"{version}\n")
+        expected = {
+            entry["path"]: (self.repo / entry["path"]).read_bytes()
+            for entry in baseline["files"]
+            if not entry["path"].startswith(("product-memory/", "telemetry/"))
+        }
+        expected[".iskin/version"] = (self.repo / ".iskin/version").read_bytes()
+        expected[baseline["self_path"]] = (self.repo / baseline["self_path"]).read_bytes()
+        manifest = {
+            "schema_version": 1,
+            "release_version": version,
+            "archive_sha256": "a" * 64,
+            "files": [
+                {"path": path, "sha256": hashlib.sha256(expected[path]).hexdigest()}
+                for path in sorted(expected)
+            ],
+        }
+        self._write(".iskin/installation-manifest.json", json.dumps(manifest, indent=2) + "\n")
 
     def _write_package(self) -> None:
         self._write(REGISTRY, f"# Registry\n- {PACKAGE_PATH}\n")
@@ -181,6 +202,13 @@ class PolicyGateExecutableTests(unittest.TestCase):
         self.assertEqual(payload["checkpoint_sha"], checkpoint)
         self.assertIn("APPROVAL_EVENT_ABSENT", payload["reason_codes"])
 
+    def test_bootstrap_fixture_is_not_preapproval_evidence(self) -> None:
+        self._checkpoint()
+        code, payload = self._run_gate("--action", "change_product")
+        self.assertEqual(code, 10, payload)
+        self.assertEqual(payload["status"], "AWAITING_APPROVAL")
+        self.assertNotIn("PRODUCT_OR_EVIDENCE_BEFORE_CHECKPOINT", payload["reason_codes"])
+
     def test_valid_staged_approval_scope_allows_only_approval_checkpoint(self) -> None:
         checkpoint = self._checkpoint()
         self._write_pending_approval(checkpoint)
@@ -239,6 +267,57 @@ class PolicyGateExecutableTests(unittest.TestCase):
         self.assertEqual(code, 20)
         self.assertEqual(payload["status"], "PROCESS_BLOCKED")
         self.assertIn("PRODUCT_OR_EVIDENCE_BEFORE_CHECKPOINT", payload["reason_codes"])
+
+    def test_preapproval_product_evidence_blocks(self) -> None:
+        self._write("evidence/run.json", "{\"result\": \"unapproved\"}\n")
+        self._commit("product evidence before package")
+        self._checkpoint()
+        code, payload = self._run_gate("--action", "change_product")
+        self.assertEqual(code, 20, payload)
+        self.assertEqual(payload["status"], "PROCESS_BLOCKED")
+        self.assertIn("PRODUCT_OR_EVIDENCE_BEFORE_CHECKPOINT", payload["reason_codes"])
+
+    def test_baseline_fixture_drift_after_bootstrap_is_blocked(self) -> None:
+        fixture = self.repo / "process/fixtures/provenance-drift/template/proof-record.json"
+        fixture.write_bytes(fixture.read_bytes() + b"drift after bootstrap\n")
+        self._commit("unauthorized baseline fixture drift")
+        code, payload = self._run_gate("--action", "change_product")
+        self.assertEqual(code, 20, payload)
+        self.assertEqual(payload["status"], "PROCESS_BLOCKED")
+        self.assertIn("BOOTSTRAP_BASELINE_HASH_MISMATCH", payload["reason_codes"])
+
+    def test_bootstrap_marker_and_manifest_are_verified(self) -> None:
+        self._git("commit", "--quiet", "--amend", "-m", "arbitrary historical boundary")
+        code, payload = self._run_gate("--action", "change_product")
+        self.assertEqual(code, 20, payload)
+        self.assertIn("BOOTSTRAP_COMMIT_MISSING", payload["reason_codes"])
+
+        self._git("reset", "--quiet", "HEAD@{1}")
+        manifest_path = self.repo / ".iskin/bootstrap-manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["files"][0]["sha256"] = "0" * 64
+        manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+        code, payload = self._run_gate("--action", "change_product")
+        self.assertEqual(code, 20, payload)
+        self.assertIn("BOOTSTRAP_BASELINE_HASH_MISMATCH", payload["reason_codes"])
+
+    def test_bootstrap_commit_scope_is_verified(self) -> None:
+        self._write("unexpected-bootstrap-file.txt", "unexpected\n")
+        self._git("add", "--", "unexpected-bootstrap-file.txt")
+        self._git("commit", "--quiet", "--amend", "--no-edit")
+        code, payload = self._run_gate("--action", "change_product")
+        self.assertEqual(code, 20, payload)
+        self.assertIn("BOOTSTRAP_COMMIT_SCOPE_INVALID", payload["reason_codes"])
+
+    def test_dirty_or_staged_product_before_approval_is_blocked(self) -> None:
+        checkpoint = self._checkpoint()
+        self._write("src/app.py", "print('unapproved')\n")
+        self._git("add", "--", "src/app.py")
+        code, payload = self._run_gate("--action", "change_product")
+        self.assertEqual(code, 20, payload)
+        self.assertEqual(payload["status"], "PROCESS_BLOCKED")
+        self.assertEqual(payload["checkpoint_sha"], checkpoint)
+        self.assertIn("PRODUCT_OR_EVIDENCE_BEFORE_APPROVAL", payload["reason_codes"])
 
     def test_preapproval_checkpoint_containing_product_code_blocks(self) -> None:
         self._write_package()
@@ -472,7 +551,7 @@ class BootstrapPolicyGateTests(unittest.TestCase):
         self.assertEqual(payload["status"], "BOOTSTRAP_REQUIRED")
         self.assertEqual(payload["allowed_actions"], ["read_only_recovery", "bootstrap_checkpoint"])
 
-        self._git("commit", "--quiet", "-m", "chore: bootstrap IskIn baseline")
+        self._git("commit", "--quiet", "-m", "chore: bootstrap iskin project baseline")
         code, payload = self._run_gate("--action", "status")
         self.assertEqual(code, 0, payload)
         self.assertEqual(payload["status"], "DISCOVERY_ALLOWED")

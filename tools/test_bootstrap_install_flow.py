@@ -99,7 +99,7 @@ class BootstrapInstallFlowTests(unittest.TestCase):
                 "commit",
                 "--quiet",
                 "-m",
-                "chore: bootstrap IskIn baseline",
+                "chore: bootstrap iskin project baseline",
                 cwd=target,
             )
             self.assertEqual(commit.returncode, 0, commit.stderr)
@@ -114,6 +114,60 @@ class BootstrapInstallFlowTests(unittest.TestCase):
             code, payload = self.gate(target, "change_product")
             self.assertEqual(code, 10, payload)
             self.assertEqual(payload["status"], "DISCOVERY_ALLOWED")
+
+            package_id = "AP-20260907-bootstrap-history-boundary"
+            package_path = target / "product-memory" / "approval-packages" / f"{package_id}.md"
+            (target / "product-memory" / "approval-packages.md").write_text(
+                f"# Registry\n- product-memory/approval-packages/{package_id}.md\n",
+                encoding="utf-8",
+            )
+            package_path.write_text(
+                "\n".join(
+                    [
+                        f"package_id: {package_id}",
+                        "package_status: prepared",
+                        "### intent и ценность",
+                        "### граница MVP",
+                        "### outcomes и наблюдаемое поведение",
+                        "### обязательные gates и evidence",
+                        "### существенные uncertainties, риски, зависимости и ограничения",
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            for name in ("intent.md", "outcomes.md", "uncertainties.md"):
+                (target / "product-memory" / name).write_text(f"# {name}\nPrepared\n", encoding="utf-8")
+            package_commit = self.run_command(
+                "git",
+                "add",
+                "--",
+                "product-memory/approval-packages.md",
+                f"product-memory/approval-packages/{package_id}.md",
+                "product-memory/intent.md",
+                "product-memory/outcomes.md",
+                "product-memory/uncertainties.md",
+                cwd=target,
+            )
+            self.assertEqual(package_commit.returncode, 0, package_commit.stderr)
+            package_commit = self.run_command(
+                "git",
+                "-c",
+                "user.name=IskIn bootstrap test",
+                "-c",
+                "user.email=iskin-bootstrap@example.invalid",
+                "commit",
+                "--quiet",
+                "-m",
+                f"iskin: pre-approval checkpoint: {package_id}",
+                cwd=target,
+            )
+            self.assertEqual(package_commit.returncode, 0, package_commit.stderr)
+            code, payload = self.gate(target, "change_product")
+            self.assertEqual(code, 10, payload)
+            self.assertEqual(payload["status"], "AWAITING_APPROVAL")
+            self.assertIn("PRE_APPROVAL_CHECKPOINT_PRESENT", payload["reason_codes"])
+            self.assertIn("APPROVAL_EVENT_ABSENT", payload["reason_codes"])
 
 
 if __name__ == "__main__":

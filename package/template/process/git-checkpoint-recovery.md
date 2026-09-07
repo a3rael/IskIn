@@ -22,6 +22,8 @@ Process fixtures считаются baseline только потому, что �
 
 Orchestrator сначала запускает `--action stage_bootstrap_baseline`, выполняет только scoped `git add -- <allowed_paths>`, перечитывает JSON, staged scope, остаток и `git diff --cached --check`, затем запускает `--action bootstrap_checkpoint`. Этот action разрешён только при exact staged scope и отсутствии остатка; он возвращает `BOOTSTRAP_REQUIRED` и не staging-ит/не commit-ит. При любом расхождении commit не создаётся. После успешного technical initial commit gate запускается повторно: lifecycle переходит в discovery, а product actions, обычный checkpoint и approval checkpoint остаются запрещены до обычного approval flow.
 
+Bootstrap commit является проверенной нижней временной границей product lifecycle. Gate принимает только единственный root commit с exact subject `chore: bootstrap iskin project baseline`, exact scope всех путей bootstrap manifest и совпадающими baseline hashes. Для проверки product code/evidence до pre-approval checkpoint анализируются только commits после этого verified bootstrap commit и до checkpoint; история до bootstrap не классифицируется как product activity. Отсутствующий, неоднозначный, не-root, изменённый по scope/hash или произвольно выбранный bootstrap commit даёт fail-closed результат. Immutable baseline drift после bootstrap запрещён даже если файл позднее восстановлен.
+
 Она восстанавливает active outcome, lifecycle, последний завершённый шаг, evidence, authority boundaries и next action. Каждый факт помечается как подтверждённый или требующий проверки.
 
 Recovery отдельно проверяет approval state по существующим durable-источникам:
