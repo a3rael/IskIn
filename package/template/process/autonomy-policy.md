@@ -50,7 +50,7 @@ Discovery включает исследование, обсуждение вар
 
 ### Durable approval event
 
-После явного утверждения Hermes записывает approval event в существующий источник истины `product-memory/decisions.md`; отдельный формат хранения или новый файл для этого не создаётся. Запись содержит:
+После явного утверждения Hermes записывает machine-readable approval event в `.iskin/policy_state.json` и согласованную human-readable запись в существующий источник `product-memory/decisions.md`; отдельный формат хранения или новый файл для этого не создаётся. Машинная запись содержит:
 
 - `package_ref` — идентификатор или проверяемую ссылку на утверждённую версию полного пакета;
 - `question` — фактически заданный вопрос об утверждении пакета и разрешении реализации;
@@ -97,3 +97,9 @@ Hermes может самостоятельно перевести outcome в `pr
 При эскалации агент задаёт один конкретный вопрос, перечисляет доступные варианты, указывает основание и записывает принятое решение в `product-memory/decisions.md`.
 
 Текстовая политика сама по себе не является техническим блокировщиком. Фактическое enforcement должно быть явно проверено кодом, схемой, тестом или runner-ом, если оно требуется контрактом.
+
+## Executable lifecycle policy gate
+
+Критические переходы дополнительно проверяются локальной read-only программой `.iskin/policy_gate.py` по versioned state `.iskin/policy_state.json` и Git history. Она возвращает только `DISCOVERY_ALLOWED`, `AWAITING_APPROVAL`, `IMPLEMENTATION_ALLOWED` или `PROCESS_BLOCKED` и не записывает файлы, telemetry или Git state. Для конкретного действия exit `0` означает разрешение; отсутствие gate, повреждённый/неподдерживаемый state, ошибка Git, package drift, продуктовый код/evidence до approval или несогласованный lifecycle дают запрет.
+
+Gate проверяет порядок и байтовое соответствие проверяемых Git-событий, но не может криптографически доказать, что человек действительно видел conversational message. `package_displayed_in_previous_agent_turn: true` остаётся human/conversational evidence и должно быть подтверждено orchestration.

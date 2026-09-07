@@ -9,6 +9,8 @@ TEMPLATE_PROCESS = ROOT / "package" / "template" / "process"
 DECISIONS_TEMPLATE = ROOT / "package" / "template" / "product-memory" / "decisions.md"
 APPROVAL_PACKAGES_TEMPLATE = ROOT / "package" / "template" / "product-memory" / "approval-packages.md"
 APPROVAL_PACKAGE_SCHEMA_TEMPLATE = ROOT / "package" / "template" / "product-memory" / "approval-packages" / "README.md"
+POLICY_GATE_TEMPLATE = ROOT / "package" / "template" / ".iskin" / "policy_gate.py"
+POLICY_STATE_TEMPLATE = ROOT / "package" / "template" / ".iskin" / "policy_state.json"
 RUNTIME_SKILLS = ROOT / "runtime" / "skills"
 
 
@@ -162,7 +164,39 @@ class ApprovalBarrierContractTests(unittest.TestCase):
         ):
             self.assertTrue(marker in policy or marker in recovery, marker)
 
-    def test_all_five_global_skills_enforce_the_barrier(self) -> None:
+    def test_executable_policy_gate_has_versioned_read_only_contract(self) -> None:
+        gate = read(POLICY_GATE_TEMPLATE)
+        state = read(POLICY_STATE_TEMPLATE)
+        for marker in (
+            "Read-only, deterministic lifecycle policy gate",
+            "DISCOVERY_ALLOWED",
+            "AWAITING_APPROVAL",
+            "IMPLEMENTATION_ALLOWED",
+            "PROCESS_BLOCKED",
+            "MACHINE_STATE_UNSUPPORTED",
+            "GIT_CHECK_FAILED",
+            "approval_display_is_conversational_evidence_not_cryptographic_proof",
+            "--action",
+        ):
+            self.assertIn(marker, gate)
+        for marker in ('"schema_version": 1', '"lifecycle": "discovery"', '"approval_state": "none"'):
+            self.assertIn(marker, state)
+
+    def test_all_six_global_skills_call_or_require_the_gate(self) -> None:
+        required_by_skill = {
+            "iskin-control-pilot": ("policy_gate.py", "read_only_recovery", "--action checkpoint"),
+            "iskin-understand-state": ("policy_gate.py", "read_only_recovery", "PROCESS_BLOCKED"),
+            "iskin-choose-next-action": ("policy_gate.py", "read_only_recovery", "allowed_actions"),
+            "iskin-change-product": ("policy_gate.py", "--action change_product", "any other exit"),
+            "iskin-prove-result": ("policy_gate.py", "--action prove_result", "product checks"),
+            "iskin-challenge-result": ("policy_gate.py", "read-only diagnosis", "telemetry writes"),
+        }
+        for skill_name, markers in required_by_skill.items():
+            text = read(RUNTIME_SKILLS / skill_name / "SKILL.md")
+            for marker in markers:
+                self.assertIn(marker, text, f"{skill_name}: {marker}")
+
+    def test_all_six_global_skills_enforce_the_barrier(self) -> None:
         required_by_skill = {
             "iskin-control-pilot": (
                 "complete approval package",

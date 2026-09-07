@@ -100,6 +100,17 @@ python3 tools/verify_repository.py
 
 Эта проверка относится к составу устанавливаемого шаблона и не переносит commit-политику в пакет.
 
+### Изменён executable policy gate
+
+Обязательны временные настоящие Git-репозитории и поведенческий набор:
+
+```text
+python3 -m unittest tools.test_policy_gate -v
+python3 -m py_compile package/template/.iskin/policy_gate.py tools/test_policy_gate.py
+```
+
+Тесты обязаны проверять JSON-статусы, fail-closed на повреждённом state и ошибке Git, порядок package/checkpoint/approval/product changes, deny для implementation/proof/checkpoint при `PROCESS_BLOCKED` и отсутствие изменений файлов, index, `HEAD` и внешнего состояния самим gate.
+
 ### Изменены несколько областей
 
 Выполняется объединение всех проверок для затронутых областей. Нельзя заменить полный набор проверок более узкой проверкой последней изменённой области.

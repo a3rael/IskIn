@@ -16,12 +16,13 @@ Use only for an IskIn outcome with a complete approved approval package, a pre-a
 
 ## Procedure
 
-1. Read the outcome, approval package at its checkpoint revision, approval event, `process/quality-gates.md`, `process/evidence-provenance.md`, current evidence, and uncertainties.
-2. Run only applicable canonical checks. Create or update canonical evidence, provenance, and proof records according to the project contract; read back every record written.
-3. Record the version or revision of the IskIn skill bundle used for the evidence in the permitted evidence or telemetry record.
-4. Reuse existing evidence only after verifying its scope, provenance, and proof relevance. A textual skill improvement alone does not invalidate evidence.
-5. Invalidate evidence only when an evidence-significant dependency changed: an obligatory process/evidence contract, the verified scope, or another required interface. Preserve historical evidence and record the required invalidation event.
-6. Set `proved` only when the approval barrier is confirmed and every approved mandatory gate, canonical artifact, proof record, and current fingerprint requirement succeeds. An implementation without confirmed approval cannot receive canonical product proof or transition to `proved`. Do not set `accepted` without a human decision or pre-approved rule.
+1. Run `python3 .iskin/policy_gate.py --action prove_result` from the project root before any product check or evidence write. Exit `0` is required; on any other exit or `PROCESS_BLOCKED`, return the read-only gate JSON and stop without running product checks or writing telemetry/evidence.
+2. Read the outcome, approval package at its checkpoint revision, approval event, `process/quality-gates.md`, `process/evidence-provenance.md`, current evidence, and uncertainties.
+3. Run only applicable canonical checks. Create or update canonical evidence, provenance, and proof records according to the project contract; read back every record written.
+4. Record the version or revision of the IskIn skill bundle used for the evidence in the permitted evidence or telemetry record.
+5. Reuse existing evidence only after verifying its scope, provenance, and proof relevance. A textual skill improvement alone does not invalidate evidence.
+6. Invalidate evidence only when an evidence-significant dependency changed: an obligatory process/evidence contract, the verified scope, or another required interface. Preserve historical evidence and record the required invalidation event.
+7. Set `proved` only when the approval barrier is confirmed and every approved mandatory gate, canonical artifact, proof record, and current fingerprint requirement succeeds. An implementation without confirmed approval cannot receive canonical product proof or transition to `proved`. Do not set `accepted` without a human decision or pre-approved rule.
 
 ## Authority boundary
 

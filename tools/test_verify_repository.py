@@ -116,6 +116,16 @@ class VerifyRepositoryTests(unittest.TestCase):
             "checkpoint_sha: не записывать в этот пакет\n",
             encoding="utf-8",
         )
+        policy_dir = self.template / ".iskin"
+        policy_dir.mkdir(parents=True, exist_ok=True)
+        (policy_dir / "policy_gate.py").write_text(
+            (self.original_template / ".iskin" / "policy_gate.py").read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+        (policy_dir / "policy_state.json").write_text(
+            (self.original_template / ".iskin" / "policy_state.json").read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
 
         valid = verifier.check_template_contract()
 

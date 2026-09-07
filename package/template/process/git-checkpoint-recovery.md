@@ -6,6 +6,14 @@
 
 Новая сессия сначала запускает глобальный `iskin-control-pilot`, который вызывает `iskin-understand-state`. Transcript Hermes — только вспомогательный источник. Сессия читает Git branch, `HEAD`, status и diff, затем `product-memory/`, evidence, `telemetry/`, process policy и фактическую версию/revision skill bundle.
 
+До интерпретации этих источников запускается read-only gate из `.iskin/policy_gate.py`:
+
+```text
+python3 .iskin/policy_gate.py --action read_only_recovery
+```
+
+JSON gate является детерминированным prerequisite. Non-zero exit или `PROCESS_BLOCKED` останавливает orchestration: не вызываются `change-product` и `prove-result`, не запускаются продуктовые проверки, не записывается telemetry и не создаётся retroactive package/checkpoint. Gate ничего не изменяет; он не доказывает факт показа пакета человеку.
+
 Она восстанавливает active outcome, lifecycle, последний завершённый шаг, evidence, authority boundaries и next action. Каждый факт помечается как подтверждённый или требующий проверки.
 
 Recovery отдельно проверяет approval state по существующим durable-источникам:
@@ -15,7 +23,7 @@ Recovery отдельно проверяет approval state по существ�
 - durable approval event: присутствует | отсутствует | противоречив;
 - `implementation_authorized`: `true` | не подтверждён.
 
-Approval нельзя выводить из transcript, заполненного intent, outcome status, выбранного варианта или существующего diff. Должны быть проверены `package_ref`, фактически заданный `question`, фактический `human_response`, `actor` и `implementation_authorized: true` в записи `product-memory/decisions.md`.
+Approval нельзя выводить из transcript, заполненного intent, outcome status, выбранного варианта или существующего diff. Машинная проверка выполняется по `.iskin/policy_state.json`; human-readable запись в `product-memory/decisions.md` остаётся согласованным журналом. Должны быть проверены `package_ref`, фактически заданный `question`, фактический `human_response`, `actor` и `implementation_authorized: true`.
 
 ## Pre-approval checkpoint
 
@@ -54,6 +62,8 @@ implementation_authorized: true
 Слепые reset, delete, stage и commit запрещены. Нельзя автоматически откатывать или удалять незавершённые изменения.
 
 Если dirty tree содержит продуктовые изменения без подтверждённого approval event, recovery классифицирует состояние как `process-blocked`. Hermes не продолжает реализацию, не создаёт product proof или checkpoint-коммит и не удаляет, не откатывает и не stage-ит изменения. Он сохраняет наблюдаемые факты и эскалирует границу полномочий человеку.
+
+Перед lifecycle/checkpoint commit вызывается `python3 .iskin/policy_gate.py --action checkpoint`; перед изменением продукта — `--action change_product`; перед canonical proof — `--action prove_result`. Exit `0` означает разрешение только запрошенного действия. Любой другой exit означает запрет.
 
 ## Checkpoint commit
 

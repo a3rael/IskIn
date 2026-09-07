@@ -2,6 +2,8 @@
 
 Перед существенным действием агент восстанавливает фактическое состояние и выбирает только одно ограниченное действие.
 
+После recovery обязательна read-only проверка `python3 .iskin/policy_gate.py --action read_only_recovery`. Gate JSON — машинный источник разрешённых действий; свободный текст Markdown не может заменить его. При `PROCESS_BLOCKED` выбор и исполнение заканчиваются read-only отчётом человеку.
+
 Приоритет:
 
 1. исправить несогласованность между outcomes, gates, evidence, uncertainties и telemetry;

@@ -16,11 +16,12 @@ Use only in an IskIn Git repository after recovery identifies one active outcome
 
 ## Procedure
 
-1. Read the active outcome, approval event, and `process/autonomy-policy.md`, `process/action-selection.md`, `process/quality-gates.md`, and `process/evidence-provenance.md`.
-2. Make only the selected bounded change inside the approved package. Do not alter package paths, intent, quality gates, evidence scope, lifecycle policy, or authority boundaries without invalidating the approval and requiring a new pre-approval checkpoint and human gate.
-3. Run every applicable check for this transition. Treat an unknown external result or unresolved error as incomplete, not as success.
-4. Synchronize product memory and telemetry with the observed result, then set only the lifecycle state supported by the transition.
-5. Prepare the precise checkpoint scope. Apply the canonical checkpoint model in `docs/architecture/v0.4-git-checkpoint-experiment.md`: read back durable records, exclude unrelated changes, and create a local checkpoint commit only after all required conditions are true.
+1. Run `python3 .iskin/policy_gate.py --action change_product` from the project root before reading or changing product files. Exit `0` is required; any other exit or `PROCESS_BLOCKED` stops this skill without product checks, telemetry writes, or checkpoint work.
+2. Read the active outcome, approval event, and `process/autonomy-policy.md`, `process/action-selection.md`, `process/quality-gates.md`, and `process/evidence-provenance.md`.
+3. Make only the selected bounded change inside the approved package. Do not alter package paths, intent, quality gates, evidence scope, lifecycle policy, or authority boundaries without invalidating the approval and requiring a new pre-approval checkpoint and human gate.
+4. Run every applicable check for this transition. Treat an unknown external result or unresolved error as incomplete, not as success.
+5. Synchronize product memory and telemetry with the observed result, then set only the lifecycle state supported by the transition.
+6. Prepare the precise checkpoint scope. Apply the canonical checkpoint model in `docs/architecture/v0.4-git-checkpoint-experiment.md`: read back durable records, exclude unrelated changes, and create a local checkpoint commit only after all required conditions are true.
 
 ## Authority boundary
 

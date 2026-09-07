@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "lifecycle": "discovery",
+  "approval_state": "none",
+  "package": null,
+  "approval_event": null,
+  "scope": {
+    "product_code_paths": [],
+    "product_evidence_paths": []
+  }
+}
