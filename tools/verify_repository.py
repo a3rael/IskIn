@@ -8,6 +8,7 @@ not write files or access the network.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -27,6 +28,7 @@ EXPECTED_TEMPLATE_FILES = {
     "AGENTS.md",
     "README.md",
     ".iskin/policy_gate.py",
+    ".iskin/bootstrap-manifest.json",
     "process/README.md",
     "process/operating-model.md",
     "process/autonomy-policy.md",
@@ -262,6 +264,30 @@ def check_json() -> Check:
     return _check("template_json", not errors, f"checked={len(paths)}, errors={errors}")
 
 
+def check_bootstrap_manifest() -> Check:
+    path = TEMPLATE / ".iskin/bootstrap-manifest.json"
+    errors: list[str] = []
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+        if set(value) != {"schema_version", "release_version", "self_path", "files"}:
+            errors.append("unexpected bootstrap manifest fields")
+        if value.get("schema_version") != 1 or value.get("self_path") != ".iskin/bootstrap-manifest.json":
+            errors.append("unsupported bootstrap manifest identity")
+        entries = value.get("files", [])
+        paths = [entry.get("path") for entry in entries]
+        if paths != sorted(paths) or len(paths) != len(set(paths)):
+            errors.append("bootstrap paths are not unique and sorted")
+        for entry in entries:
+            relative = entry.get("path")
+            expected = entry.get("sha256")
+            target = TEMPLATE / relative
+            if not target.is_file() or hashlib.sha256(target.read_bytes()).hexdigest() != expected:
+                errors.append(f"baseline hash mismatch: {relative}")
+    except (OSError, UnicodeError, AttributeError, TypeError, json.JSONDecodeError) as exc:
+        errors.append(str(exc))
+    return _check("bootstrap_manifest", not errors, f"errors={errors}")
+
+
 def check_product_memory_empty() -> Check:
     files = [
         TEMPLATE / "product-memory" / name
@@ -490,6 +516,8 @@ def check_internal_links() -> Check:
             references.append((source, target))
         for target in re.findall(r"(?<!`)`([^`]+)`", text):
             if target.startswith((".hermes/", ".iskin/", "process/", "product-memory/", "telemetry/", "docs/", "package/", "installer/", "tools/")):
+                if target == ".iskin/installation-manifest.json":
+                    continue
                 references.append((source, target))
     broken: list[str] = []
     checked = 0
@@ -563,6 +591,7 @@ def run_checks() -> list[Check]:
         check_template_gitignore(),
         check_template_symlinks(),
         check_json(),
+        check_bootstrap_manifest(),
         check_product_memory_empty(),
         check_telemetry_empty(),
         check_template_contract(),

@@ -180,6 +180,9 @@ class ApprovalBarrierContractTests(unittest.TestCase):
             "GIT_CHECK_FAILED",
             "approval_display_is_conversational_evidence_not_cryptographic_proof",
             "approval_checkpoint",
+            "bootstrap_checkpoint",
+            "INITIAL_BASELINE_UNCOMMITTED",
+            "BOOTSTRAP_BASELINE",
             "UNSUPPORTED_PROJECT_STATE",
             "product-memory/approval-events",
             "--action",
@@ -188,9 +191,9 @@ class ApprovalBarrierContractTests(unittest.TestCase):
 
     def test_all_six_global_skills_call_or_require_the_gate(self) -> None:
         required_by_skill = {
-            "iskin-control-pilot": ("policy_gate.py", "read_only_recovery", "--action checkpoint"),
-            "iskin-understand-state": ("policy_gate.py", "read_only_recovery", "PROCESS_BLOCKED"),
-            "iskin-choose-next-action": ("policy_gate.py", "read_only_recovery", "allowed_actions"),
+            "iskin-control-pilot": ("policy_gate.py", "read_only_recovery", "bootstrap_checkpoint", "--action checkpoint"),
+            "iskin-understand-state": ("policy_gate.py", "read_only_recovery", "bootstrap_checkpoint", "PROCESS_BLOCKED"),
+            "iskin-choose-next-action": ("policy_gate.py", "read_only_recovery", "bootstrap_checkpoint", "allowed_actions"),
             "iskin-change-product": ("policy_gate.py", "--action change_product", "any other exit"),
             "iskin-prove-result": ("policy_gate.py", "--action prove_result", "product checks"),
             "iskin-challenge-result": ("policy_gate.py", "read-only diagnosis", "telemetry writes"),

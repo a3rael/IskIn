@@ -80,6 +80,8 @@ files
 
 `files` — отсортированный лексикографически полный allowlist обычных файлов шаблона. Пути относительны `template_root` и используют только безопасную `/`-форму. Каждая запись содержит ровно `path` и строчный `sha256` длиной 64 знака. `VERSION`, `package-manifest.json`, каталоги и неизвестные поля запрещены. Каноническое human decision: `docs/decisions/2026-09-02-v0.3-package-manifest-v1.md`.
 
+Для v0.4 в установленный immutable core также входит `.iskin/bootstrap-manifest.json`. Это отдельный verified baseline для первого Git commit: он перечисляет release template-файлы по происхождению пути и SHA-256, но не является заменой `package-manifest.json` или `installation-manifest.json`. Gate использует его только пока `HEAD` отсутствует; после успешного технического initial commit lifecycle остаётся discovery.
+
 ## Installation manifest v1
 
 После успешной установки создаются `.iskin/version` и `.iskin/installation-manifest.json`. Последний имеет ровно такие поля:
@@ -92,6 +94,8 @@ files
 ```
 
 `schema_version` равен целому числу `1`; `release_version` и `archive_sha256` соответствуют проверенному release. `files` — отсортированный полный список immutable installation core-файлов, кроме самого installation manifest, включая `.iskin/version`; каждая запись содержит только `path` и строчный `sha256`. Устанавливаемые `product-memory/` и `telemetry/` являются mutable project state и намеренно не входят в этот последующий integrity allowlist. Пути относительны target и не содержат опасных компонентов. Дата, абсолютный путь компьютера и другие недетерминированные данные не записываются.
+
+После `install --init-git` установочный flow должен вызвать `python3 .iskin/policy_gate.py --action bootstrap_checkpoint`. Gate не изменяет Git state: orchestration перечитывает разрешение и staged scope, создаёт только локальный технический initial commit, затем повторяет gate. При изменённом baseline, дополнительном файле или неполном staged scope commit запрещён.
 
 Exit codes:
 

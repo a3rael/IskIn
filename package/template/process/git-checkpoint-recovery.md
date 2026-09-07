@@ -14,6 +14,14 @@ python3 .iskin/policy_gate.py --action read_only_recovery
 
 JSON gate является детерминированным prerequisite. Non-zero exit или `PROCESS_BLOCKED` останавливает orchestration: не вызываются `change-product` и `prove-result`, не запускаются продуктовые проверки, не записывается telemetry и не создаётся retroactive package/checkpoint. Gate ничего не изменяет; он не доказывает факт показа пакета человеку.
 
+## Bootstrap checkpoint до первого commit
+
+После установки с `--init-git` repository имеет Git metadata, но `HEAD` ещё отсутствует. В этом состоянии допустим только статус `DISCOVERY_ALLOWED` с reason `INITIAL_BASELINE_UNCOMMITTED`. Gate проверяет immutable `.iskin/bootstrap-manifest.json`, generated `.iskin/installation-manifest.json`, происхождение и SHA-256 каждого baseline-файла, exact inventory, пустые product memory/telemetry, отсутствие approval packages/events/product code/evidence, а также staged scope, отсутствие unstaged/untracked остатка и `git diff --cached --check`.
+
+Process fixtures считаются baseline только потому, что их путь и содержимое перечислены в проверенном bootstrap manifest. Отдельное исключение по имени `proof-record.json` запрещено. Изменённый или отсутствующий baseline, дополнительный файл или изменённая installation metadata дают fail-closed результат и не разрешают commit.
+
+Orchestrator сначала запускает `--action bootstrap_checkpoint`, перечитывает JSON и staged scope, затем создаёт только локальный технический initial commit. Gate не staging-ит и не commit-ит. При запрете commit не создаётся. После commit gate запускается повторно: lifecycle остаётся discovery, а product actions, обычный checkpoint и approval checkpoint остаются запрещены до обычного approval flow.
+
 Она восстанавливает active outcome, lifecycle, последний завершённый шаг, evidence, authority boundaries и next action. Каждый факт помечается как подтверждённый или требующий проверки.
 
 Recovery отдельно проверяет approval state по существующим durable-источникам:

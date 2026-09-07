@@ -6,8 +6,9 @@
 
 1. Начни с глобального `iskin-control-pilot`.
 2. Выполни recovery preflight через `iskin-understand-state`.
-3. Каноническое состояние читай из Git, `product-memory/`, evidence и `telemetry/`; transcript Hermes используй только как вспомогательный источник.
-4. При отсутствии global skills ИскИн или структуры проекта сообщи конкретный blocker до изменения продукта; вне структуры ИскИн навык неприменим.
+3. Если `HEAD` отсутствует, вызови `python3 .iskin/policy_gate.py --action bootstrap_checkpoint`. При `DISCOVERY_ALLOWED` сначала проверь JSON gate, staged scope и `git diff --cached --check`, затем создай только локальный технический initial commit. При запрете ничего не staging/commit и верни blocker. После commit повтори gate и только затем переходи к discovery.
+4. Каноническое состояние читай из Git, `product-memory/`, evidence и `telemetry/`; transcript Hermes используй только как вспомогательный источник.
+5. При отсутствии global skills ИскИн или структуры проекта сообщи конкретный blocker до изменения продукта; вне структуры ИскИн навык неприменим.
 
 ## Канонические источники
 
@@ -16,6 +17,7 @@
 - Выбор следующего действия: `process/action-selection.md`.
 - Product gates и evidence: `process/quality-gates.md`, `process/evidence-provenance.md`.
 - Git checkpoint и recovery: `process/git-checkpoint-recovery.md`.
+- Bootstrap baseline: immutable `.iskin/bootstrap-manifest.json` and generated `.iskin/installation-manifest.json`; process fixtures listed by that baseline are not product evidence during the initial commit only.
 - Pre-approval package: registry `product-memory/approval-packages.md` and files `product-memory/approval-packages/<package_id>.md`; approval event: `product-memory/decisions.md`.
 - Определения telemetry: `telemetry/metrics.md`; фактические циклы: `telemetry/run-log.md`.
 

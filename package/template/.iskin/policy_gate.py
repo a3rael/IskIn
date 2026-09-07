@@ -13,7 +13,9 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
+import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
@@ -26,11 +28,15 @@ EVENT_DIR = "product-memory/approval-events"
 DECISIONS_PATH = "product-memory/decisions.md"
 REGISTRY_PATH = "product-memory/approval-packages.md"
 GATE_PATH = ".iskin/policy_gate.py"
+BOOTSTRAP_MANIFEST_PATH = ".iskin/bootstrap-manifest.json"
+INSTALLATION_MANIFEST_PATH = ".iskin/installation-manifest.json"
 LEGACY_STATE_PATH = ".iskin/policy_state.json"
 CHECKPOINT_PREFIX = "iskin: pre-approval checkpoint:"
 EVENT_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{1,127}$")
 PACKAGE_ID_RE = EVENT_ID_RE
 CHECKPOINT_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+VERSION_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
 EVENT_REFERENCE_RE = re.compile(r"^\s*approval_event_id:\s*([^\s]+)\s*$", re.MULTILINE)
 EVENT_PATH_REFERENCE_RE = re.compile(r"^\s*approval_event_path:\s*([^\s]+)\s*$", re.MULTILINE)
 PACKAGE_REFERENCE_RE = re.compile(r"product-memory/approval-packages/([A-Za-z0-9][A-Za-z0-9._-]{1,127})\.md")
@@ -45,6 +51,7 @@ ACTIONS = (
     "prepare_approval",
     "pre_approval_checkpoint",
     "human_approval",
+    "bootstrap_checkpoint",
     "approval_checkpoint",
     "change_product",
     "prove_result",
@@ -54,6 +61,7 @@ ACTIONS = (
     "telemetry_write",
 )
 CRITICAL_ACTIONS = (
+    "bootstrap_checkpoint",
     "approval_checkpoint",
     "change_product",
     "prove_result",
@@ -117,6 +125,13 @@ class Package:
     package_id: str
     package_path: str
     package_paths: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class BootstrapBaseline:
+    release_version: str
+    self_path: str
+    files: tuple[tuple[str, str], ...]
 
 
 @dataclass(frozen=True)
@@ -242,6 +257,186 @@ def _read_text(repo: Path, relative: str) -> str:
         return _read_regular(repo, relative).decode("utf-8")
     except UnicodeDecodeError as exc:
         raise GateError("REQUIRED_STATE_UNREADABLE") from exc
+
+
+def _sha256_bytes(value: bytes) -> str:
+    return hashlib.sha256(value).hexdigest()
+
+
+def _load_bootstrap_manifest(repo: Path) -> BootstrapBaseline:
+    try:
+        value = json.loads(
+            _read_regular(repo, BOOTSTRAP_MANIFEST_PATH).decode("utf-8"),
+            object_pairs_hook=_reject_duplicate_keys,
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        raise GateError("BOOTSTRAP_BASELINE_INVALID") from exc
+    if not isinstance(value, dict) or set(value) != {"schema_version", "release_version", "self_path", "files"}:
+        raise GateError("BOOTSTRAP_BASELINE_INVALID")
+    if value["schema_version"] != 1 or not isinstance(value["release_version"], str) or not VERSION_RE.fullmatch(value["release_version"]):
+        raise GateError("BOOTSTRAP_BASELINE_INVALID")
+    if value["self_path"] != BOOTSTRAP_MANIFEST_PATH or not isinstance(value["files"], list) or not value["files"]:
+        raise GateError("BOOTSTRAP_BASELINE_INVALID")
+
+    entries: list[tuple[str, str]] = []
+    for item in value["files"]:
+        if not isinstance(item, dict) or set(item) != {"path", "sha256"}:
+            raise GateError("BOOTSTRAP_BASELINE_INVALID")
+        path = item["path"]
+        digest = item["sha256"]
+        if (
+            not _safe_relative_path(path)
+            or path == BOOTSTRAP_MANIFEST_PATH
+            or path == INSTALLATION_MANIFEST_PATH
+            or path.startswith(".git/")
+            or not isinstance(digest, str)
+            or not SHA256_RE.fullmatch(digest)
+        ):
+            raise GateError("BOOTSTRAP_BASELINE_INVALID")
+        entries.append((path, digest))
+    if len({path for path, _ in entries}) != len(entries) or [path for path, _ in entries] != sorted(path for path, _ in entries):
+        raise GateError("BOOTSTRAP_BASELINE_INVALID")
+    if ".iskin/policy_gate.py" not in {path for path, _ in entries}:
+        raise GateError("BOOTSTRAP_BASELINE_INVALID")
+    return BootstrapBaseline(value["release_version"], value["self_path"], tuple(entries))
+
+
+def _load_installation_manifest(repo: Path, baseline: BootstrapBaseline) -> dict[str, str]:
+    try:
+        value = json.loads(
+            _read_regular(repo, INSTALLATION_MANIFEST_PATH).decode("utf-8"),
+            object_pairs_hook=_reject_duplicate_keys,
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        raise GateError("BOOTSTRAP_INSTALLATION_METADATA_INVALID") from exc
+    required = {"schema_version", "release_version", "archive_sha256", "files"}
+    if not isinstance(value, dict) or set(value) != required:
+        raise GateError("BOOTSTRAP_INSTALLATION_METADATA_INVALID")
+    if value["schema_version"] != 1 or value["release_version"] != baseline.release_version:
+        raise GateError("BOOTSTRAP_INSTALLATION_METADATA_INVALID")
+    if not isinstance(value["archive_sha256"], str) or not SHA256_RE.fullmatch(value["archive_sha256"]):
+        raise GateError("BOOTSTRAP_INSTALLATION_METADATA_INVALID")
+    if not isinstance(value["files"], list) or not value["files"]:
+        raise GateError("BOOTSTRAP_INSTALLATION_METADATA_INVALID")
+
+    observed: dict[str, str] = {}
+    for item in value["files"]:
+        if not isinstance(item, dict) or set(item) != {"path", "sha256"}:
+            raise GateError("BOOTSTRAP_INSTALLATION_METADATA_INVALID")
+        path = item["path"]
+        digest = item["sha256"]
+        if not _safe_relative_path(path) or not isinstance(digest, str) or not SHA256_RE.fullmatch(digest) or path in observed:
+            raise GateError("BOOTSTRAP_INSTALLATION_METADATA_INVALID")
+        observed[path] = digest
+    if list(observed) != sorted(observed):
+        raise GateError("BOOTSTRAP_INSTALLATION_METADATA_INVALID")
+
+    immutable = {
+        path
+        for path, _ in baseline.files
+        if not path.startswith(("product-memory/", "telemetry/"))
+    }
+    immutable.update({baseline.self_path, ".iskin/version"})
+    if set(observed) != immutable:
+        raise GateError("BOOTSTRAP_INSTALLATION_SCOPE_INVALID")
+    for path, expected in observed.items():
+        file_path = repo / path
+        if file_path.is_symlink() or not file_path.is_file():
+            raise GateError("BOOTSTRAP_BASELINE_MISSING")
+        try:
+            actual = _sha256_bytes(file_path.read_bytes())
+        except OSError as exc:
+            raise GateError("BOOTSTRAP_BASELINE_UNREADABLE") from exc
+        if actual != expected:
+            raise GateError("BOOTSTRAP_BASELINE_HASH_MISMATCH")
+    version_path = repo / ".iskin/version"
+    if version_path.read_bytes() != f"{baseline.release_version}\n".encode("utf-8"):
+        raise GateError("BOOTSTRAP_BASELINE_HASH_MISMATCH")
+    return observed
+
+
+def _workspace_inventory(repo: Path) -> tuple[set[str], set[str]]:
+    files: set[str] = set()
+    directories: set[str] = set()
+    try:
+        for current_name, directory_names, file_names in os.walk(repo, topdown=True, followlinks=False):
+            current = Path(current_name)
+            if current == repo and ".git" in directory_names:
+                directory_names.remove(".git")
+            for name in sorted(directory_names):
+                path = current / name
+                relative = path.relative_to(repo).as_posix()
+                if path.is_symlink() or not path.is_dir():
+                    raise GateError("BOOTSTRAP_UNSAFE_PATH")
+                directories.add(relative)
+            for name in sorted(file_names):
+                path = current / name
+                relative = path.relative_to(repo).as_posix()
+                if path.is_symlink() or not path.is_file():
+                    raise GateError("BOOTSTRAP_UNSAFE_PATH")
+                files.add(relative)
+    except OSError as exc:
+        raise GateError("BOOTSTRAP_BASELINE_UNREADABLE") from exc
+    return files, directories
+
+
+def _validate_bootstrap_baseline(repo: Path) -> BootstrapBaseline:
+    baseline = _load_bootstrap_manifest(repo)
+    _load_installation_manifest(repo, baseline)
+    expected_files = {path for path, _ in baseline.files}
+    expected_files.update({baseline.self_path, ".iskin/version", INSTALLATION_MANIFEST_PATH})
+    actual_files, actual_directories = _workspace_inventory(repo)
+    missing = expected_files - actual_files
+    unexpected = actual_files - expected_files
+    if missing:
+        raise GateError("BOOTSTRAP_BASELINE_MISSING")
+    if unexpected:
+        raise GateError("BOOTSTRAP_UNEXPECTED_FILE")
+
+    expected_directories: set[str] = set()
+    for path in expected_files:
+        parent = Path(path).parent
+        while str(parent) not in {"", "."}:
+            expected_directories.add(parent.as_posix())
+            parent = parent.parent
+    if actual_directories != expected_directories:
+        raise GateError("BOOTSTRAP_UNEXPECTED_PATH")
+
+    expected_hashes = dict(baseline.files)
+    for path, expected in expected_hashes.items():
+        file_path = repo / path
+        if not file_path.is_file():
+            raise GateError("BOOTSTRAP_BASELINE_MISSING")
+        if _sha256_bytes(file_path.read_bytes()) != expected:
+            raise GateError("BOOTSTRAP_BASELINE_HASH_MISMATCH")
+    return baseline
+
+
+def _head_exists(repo: Path) -> bool:
+    result = _run_git(repo, "rev-parse", "--verify", "HEAD")
+    if result.returncode == 0:
+        return True
+    if result.returncode == 128:
+        return False
+    raise GateError("GIT_CHECK_FAILED")
+
+
+def _bootstrap_scope(repo: Path, baseline: BootstrapBaseline) -> tuple[bool, tuple[str, ...]]:
+    expected = {path for path, _ in baseline.files}
+    expected.update({baseline.self_path, ".iskin/version", INSTALLATION_MANIFEST_PATH})
+    staged = set(_staged_paths(repo))
+    unstaged = set(_unstaged_paths(repo))
+    reasons: list[str] = []
+    if not staged:
+        reasons.append("BOOTSTRAP_SCOPE_NOT_STAGED")
+    elif staged != expected:
+        reasons.append("BOOTSTRAP_SCOPE_MISMATCH")
+    if unstaged:
+        reasons.append("BOOTSTRAP_UNSTAGED_REMAINDER")
+    diff_check = _run_git(repo, "diff", "--cached", "--check")
+    if diff_check.returncode != 0:
+        reasons.append("BOOTSTRAP_DIFF_CHECK_FAILED")
+    return not reasons, tuple(dict.fromkeys(reasons))
 
 
 def _head_has(repo: Path, relative: str) -> bool:
@@ -596,8 +791,39 @@ def _blocked(
     )
 
 
+def _build_bootstrap_evaluation(repo: Path, action: str) -> Evaluation:
+    baseline = _validate_bootstrap_baseline(repo)
+    scope_valid, scope_reasons = _bootstrap_scope(repo, baseline)
+    allowed = ["discover", "prepare_approval", "read_only_recovery"]
+    if scope_valid:
+        allowed.insert(0, "bootstrap_checkpoint")
+    if action == "bootstrap_checkpoint" and not scope_valid:
+        return Evaluation(
+            STATUS_DISCOVERY,
+            tuple(("INITIAL_BASELINE_UNCOMMITTED", *scope_reasons)),
+            None,
+            None,
+            "none",
+            "discovery",
+            tuple(allowed),
+            "not_applicable_without_approval_event",
+        )
+    return Evaluation(
+        STATUS_DISCOVERY,
+        ("INITIAL_BASELINE_UNCOMMITTED",),
+        None,
+        None,
+        "none",
+        "discovery",
+        tuple(allowed),
+        "not_applicable_without_approval_event",
+    )
+
+
 def _build_evaluation(repo: Path, action: str) -> Evaluation:
     _ensure_supported_project(repo)
+    if not _head_exists(repo):
+        return _build_bootstrap_evaluation(repo, action)
     packages = _load_packages(repo)
     events_with_bytes = _load_events(repo)
     events = tuple(event for event, _ in events_with_bytes)

@@ -4,6 +4,8 @@
 
 После recovery обязательна read-only проверка `python3 .iskin/policy_gate.py --action read_only_recovery`. Gate JSON — машинный источник разрешённых действий; свободный текст Markdown не может заменить его. При `PROCESS_BLOCKED` выбор и исполнение заканчиваются read-only отчётом человеку.
 
+Если `HEAD` отсутствует, сначала выбирается только bootstrap flow: `python3 .iskin/policy_gate.py --action bootstrap_checkpoint`. При `INITIAL_BASELINE_UNCOMMITTED` и разрешённом действии orchestration перечитывает staged scope и создаёт только локальный технический initial commit. При запрете commit не создаётся. После commit lifecycle остаётся discovery; bootstrap не является approval и не разрешает product actions.
+
 Приоритет:
 
 1. исправить несогласованность между outcomes, gates, evidence, uncertainties и telemetry;
