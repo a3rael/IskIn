@@ -9,11 +9,11 @@
     },
     {
       "path": ".iskin/policy_gate.py",
-      "sha256": "f089474ec56f35b767241dcc097b1b6c3c1384a43bc3a98ae45e19992666019f"
+      "sha256": "a74bd29d628fd70a71ffdb96bdbfdfa3f7fd10f2f57528c730d9d6d5538a7f47"
     },
     {
       "path": "AGENTS.md",
-      "sha256": "9b09461f2db0dacf0c1d75064226efd72eba481d1545dd1f92bac7cf8e48f9f8"
+      "sha256": "e1c262b541bb1081d4acf1c3e740195e1a8c227d23901a075ba5e6a63a996321"
     },
     {
       "path": "README.md",
@@ -25,11 +25,11 @@
     },
     {
       "path": "process/action-selection.md",
-      "sha256": "de225fa67a47c9337584886c6fe9a66171499e911015149b3946eec2cdfcce07"
+      "sha256": "096005d57d1a58387e6240a35f6f54f7f8123b7bda03f76c646d570e4093f1ec"
     },
     {
       "path": "process/autonomy-policy.md",
-      "sha256": "0f676cbb59f29871415e1cae47daea99e9e4024b5e49f1178b795cf04a72d15a"
+      "sha256": "7e7b6e927fa2f2954cf75993c9016aafa1f45097b8870903a52e4b7fcbcf4cab"
     },
     {
       "path": "process/evidence-provenance.md",
@@ -53,7 +53,7 @@
     },
     {
       "path": "process/git-checkpoint-recovery.md",
-      "sha256": "4bc636d637c53692e1827eb58cf9e0f2412d225e64d7e08b33f0a49dd0baaaf7"
+      "sha256": "c933df0bd09dd491e3a3e58e2d6dcd3375bd44152052d455aa577db2b9b874ef"
     },
     {
       "path": "process/operating-model.md",

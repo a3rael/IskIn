@@ -70,17 +70,24 @@ class BootstrapInstallFlowTests(unittest.TestCase):
 
             code, payload = self.gate(target, "status")
             self.assertEqual(code, 0, payload)
-            self.assertEqual(payload["status"], "DISCOVERY_ALLOWED")
+            self.assertEqual(payload["status"], "BOOTSTRAP_REQUIRED")
             self.assertIn("INITIAL_BASELINE_UNCOMMITTED", payload["reason_codes"])
+            self.assertEqual(payload["allowed_actions"], ["read_only_recovery", "stage_bootstrap_baseline"])
+
+            code, stage_payload = self.gate(target, "stage_bootstrap_baseline")
+            self.assertEqual(code, 0, stage_payload)
+            paths = stage_payload["allowed_paths"]
+            self.assertEqual(paths, sorted(paths))
+
             code, payload = self.gate(target, "bootstrap_checkpoint")
             self.assertEqual(code, 10, payload)
             self.assertNotIn("bootstrap_checkpoint", payload["allowed_actions"])
 
-            staged = self.run_command("git", "add", "-A", cwd=target)
+            staged = self.run_command("git", "add", "--", *paths, cwd=target)
             self.assertEqual(staged.returncode, 0, staged.stderr)
             code, payload = self.gate(target, "bootstrap_checkpoint")
             self.assertEqual(code, 0, payload)
-            self.assertEqual(payload["status"], "DISCOVERY_ALLOWED")
+            self.assertEqual(payload["status"], "BOOTSTRAP_REQUIRED")
             self.assertIn("bootstrap_checkpoint", payload["allowed_actions"])
 
             commit = self.run_command(

@@ -430,24 +430,47 @@ class BootstrapPolicyGateTests(unittest.TestCase):
         head = self._git("rev-parse", "--verify", "HEAD", check=False)
         return status, staged, head
 
-    def test_exact_new_install_allows_bootstrap_and_keeps_fixture_as_baseline(self) -> None:
+    def test_pristine_install_requires_authorized_staging(self) -> None:
         code, payload = self._run_gate("--action", "status")
         self.assertEqual(code, 0, payload)
-        self.assertEqual(payload["status"], "DISCOVERY_ALLOWED")
+        self.assertEqual(payload["status"], "BOOTSTRAP_REQUIRED")
         self.assertIn("INITIAL_BASELINE_UNCOMMITTED", payload["reason_codes"])
         self.assertNotIn("PRODUCT_OR_EVIDENCE_WITHOUT_PACKAGE", payload["reason_codes"])
+        self.assertEqual(payload["allowed_actions"], ["read_only_recovery", "stage_bootstrap_baseline"])
+        for action in ("discover", "prepare_approval", "bootstrap_checkpoint", "approval_checkpoint"):
+            self.assertIn(action, payload["forbidden_actions"])
+        for action in ("discover", "prepare_approval"):
+            code, denied = self._run_gate("--action", action)
+            self.assertEqual(code, 10, (action, denied))
+            self.assertEqual(denied["status"], "BOOTSTRAP_REQUIRED")
+
+        before = self._snapshot()
+        code, stage_payload = self._run_gate("--action", "stage_bootstrap_baseline")
+        self.assertEqual(code, 0, stage_payload)
+        paths = stage_payload["allowed_paths"]
+        self.assertEqual(paths, sorted(paths))
+        self.assertTrue(paths)
+        self.assertEqual(self._snapshot(), before)
 
         code, payload = self._run_gate("--action", "bootstrap_checkpoint")
-        self.assertEqual(code, 10)
-        self.assertIn("BOOTSTRAP_SCOPE_NOT_STAGED", payload["reason_codes"])
+        self.assertEqual(code, 10, payload)
+        self.assertEqual(payload["status"], "BOOTSTRAP_REQUIRED")
 
-        self._git("add", "-A")
-        before = self._snapshot()
+        self._git("add", "--", paths[0])
+        code, payload = self._run_gate("--action", "bootstrap_checkpoint")
+        self.assertEqual(code, 20, payload)
+        self.assertEqual(payload["status"], "PROCESS_BLOCKED")
+        self._git("reset", "--quiet")
+
+        self._git("add", "--", *paths)
+        code, payload = self._run_gate("--action", "stage_bootstrap_baseline")
+        self.assertEqual(code, 10, payload)
+        self.assertEqual(payload["allowed_actions"], ["read_only_recovery", "bootstrap_checkpoint"])
+
         code, payload = self._run_gate("--action", "bootstrap_checkpoint")
         self.assertEqual(code, 0, payload)
-        self.assertEqual(payload["status"], "DISCOVERY_ALLOWED")
-        self.assertIn("bootstrap_checkpoint", payload["allowed_actions"])
-        self.assertEqual(self._snapshot(), before)
+        self.assertEqual(payload["status"], "BOOTSTRAP_REQUIRED")
+        self.assertEqual(payload["allowed_actions"], ["read_only_recovery", "bootstrap_checkpoint"])
 
         self._git("commit", "--quiet", "-m", "chore: bootstrap IskIn baseline")
         code, payload = self._run_gate("--action", "status")
@@ -459,6 +482,23 @@ class BootstrapPolicyGateTests(unittest.TestCase):
             code, payload = self._run_gate("--action", action)
             self.assertEqual(code, 10, (action, payload))
             self.assertEqual(payload["status"], "DISCOVERY_ALLOWED")
+
+    def test_staged_bootstrap_recovers_after_interrupted_state(self) -> None:
+        code, stage_payload = self._run_gate("--action", "stage_bootstrap_baseline")
+        self.assertEqual(code, 0, stage_payload)
+        paths = stage_payload["allowed_paths"]
+        self._git("add", "--", *paths)
+        self._write("unexpected.txt", "interrupted\n")
+
+        code, payload = self._run_gate("--action", "bootstrap_checkpoint")
+        self.assertEqual(code, 20, payload)
+        self.assertEqual(payload["status"], "PROCESS_BLOCKED")
+        self.assertIn("BOOTSTRAP_UNEXPECTED_FILE", payload["reason_codes"])
+
+        (self.repo / "unexpected.txt").unlink()
+        code, payload = self._run_gate("--action", "bootstrap_checkpoint")
+        self.assertEqual(code, 0, payload)
+        self.assertEqual(payload["status"], "BOOTSTRAP_REQUIRED")
 
     def test_product_evidence_and_unexpected_files_fail_bootstrap_closed(self) -> None:
         for relative, content in (
@@ -491,14 +531,16 @@ class BootstrapPolicyGateTests(unittest.TestCase):
     def test_wrong_staged_scope_is_denied_but_exact_scope_is_allowed(self) -> None:
         self._git("add", "--", ".gitignore")
         code, payload = self._run_gate("--action", "bootstrap_checkpoint")
-        self.assertEqual(code, 10)
+        self.assertEqual(code, 20)
         self.assertIn("BOOTSTRAP_SCOPE_MISMATCH", payload["reason_codes"])
 
         self._git("reset", "--quiet")
-        self._git("add", "-A")
+        code, stage_payload = self._run_gate("--action", "stage_bootstrap_baseline")
+        self.assertEqual(code, 0, stage_payload)
+        self._git("add", "--", *stage_payload["allowed_paths"])
         code, payload = self._run_gate("--action", "bootstrap_checkpoint")
         self.assertEqual(code, 0, payload)
-        self.assertEqual(payload["status"], "DISCOVERY_ALLOWED")
+        self.assertEqual(payload["status"], "BOOTSTRAP_REQUIRED")
 
     def test_bootstrap_gate_is_read_only(self) -> None:
         before = self._snapshot()

@@ -95,7 +95,7 @@ files
 
 `schema_version` равен целому числу `1`; `release_version` и `archive_sha256` соответствуют проверенному release. `files` — отсортированный полный список immutable installation core-файлов, кроме самого installation manifest, включая `.iskin/version`; каждая запись содержит только `path` и строчный `sha256`. Устанавливаемые `product-memory/` и `telemetry/` являются mutable project state и намеренно не входят в этот последующий integrity allowlist. Пути относительны target и не содержат опасных компонентов. Дата, абсолютный путь компьютера и другие недетерминированные данные не записываются.
 
-После `install --init-git` установочный flow должен вызвать `python3 .iskin/policy_gate.py --action bootstrap_checkpoint`. Gate не изменяет Git state: orchestration перечитывает разрешение и staged scope, создаёт только локальный технический initial commit, затем повторяет gate. При изменённом baseline, дополнительном файле или неполном staged scope commit запрещён.
+После `install --init-git` установочный flow должен получить `BOOTSTRAP_REQUIRED`, вызвать read-only `python3 .iskin/policy_gate.py --action stage_bootstrap_baseline`, stage-ить только возвращённый `allowed_paths`, перечитать scope и вызвать `--action bootstrap_checkpoint`. Gate не изменяет Git state: orchestration создаёт только локальный технический initial commit после exact staging, затем повторяет gate. При изменённом baseline, дополнительном файле или неполном staged scope commit запрещён.
 
 Exit codes:
 

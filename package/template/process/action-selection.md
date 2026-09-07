@@ -4,7 +4,7 @@
 
 После recovery обязательна read-only проверка `python3 .iskin/policy_gate.py --action read_only_recovery`. Gate JSON — машинный источник разрешённых действий; свободный текст Markdown не может заменить его. При `PROCESS_BLOCKED` выбор и исполнение заканчиваются read-only отчётом человеку.
 
-Если `HEAD` отсутствует, сначала выбирается только bootstrap flow: `python3 .iskin/policy_gate.py --action bootstrap_checkpoint`. При `INITIAL_BASELINE_UNCOMMITTED` и разрешённом действии orchestration перечитывает staged scope и создаёт только локальный технический initial commit. При запрете commit не создаётся. После commit lifecycle остаётся discovery; bootstrap не является approval и не разрешает product actions.
+Если `HEAD` отсутствует, gate обязан вернуть `BOOTSTRAP_REQUIRED`: discovery и подготовка approval запрещены. `iskin-control-pilot` вызывает `python3 .iskin/policy_gate.py --action stage_bootstrap_baseline`, получает exact `allowed_paths`, stage-ит только эти пути через scoped `git add -- <paths>`, перечитывает index и вызывает `--action bootstrap_checkpoint`. Gate сам не изменяет index. Только при exit `0`, статусе `BOOTSTRAP_REQUIRED`, exact staged scope и успешном `git diff --cached --check` создаётся локальный технический initial commit. При расхождении commit не создаётся. После commit lifecycle остаётся discovery; bootstrap не является approval и не разрешает product actions.
 
 Приоритет:
 

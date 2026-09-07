@@ -42,6 +42,7 @@ EVENT_PATH_REFERENCE_RE = re.compile(r"^\s*approval_event_path:\s*([^\s]+)\s*$",
 PACKAGE_REFERENCE_RE = re.compile(r"product-memory/approval-packages/([A-Za-z0-9][A-Za-z0-9._-]{1,127})\.md")
 
 STATUS_DISCOVERY = "DISCOVERY_ALLOWED"
+STATUS_BOOTSTRAP = "BOOTSTRAP_REQUIRED"
 STATUS_AWAITING = "AWAITING_APPROVAL"
 STATUS_IMPLEMENTATION = "IMPLEMENTATION_ALLOWED"
 STATUS_BLOCKED = "PROCESS_BLOCKED"
@@ -51,6 +52,7 @@ ACTIONS = (
     "prepare_approval",
     "pre_approval_checkpoint",
     "human_approval",
+    "stage_bootstrap_baseline",
     "bootstrap_checkpoint",
     "approval_checkpoint",
     "change_product",
@@ -158,6 +160,7 @@ class Evaluation:
     lifecycle: str | None
     allowed_actions: tuple[str, ...]
     human_evidence_boundary: str
+    allowed_paths: tuple[str, ...] = ()
 
 
 def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -422,8 +425,7 @@ def _head_exists(repo: Path) -> bool:
 
 
 def _bootstrap_scope(repo: Path, baseline: BootstrapBaseline) -> tuple[bool, tuple[str, ...]]:
-    expected = {path for path, _ in baseline.files}
-    expected.update({baseline.self_path, ".iskin/version", INSTALLATION_MANIFEST_PATH})
+    expected = set(_bootstrap_paths(baseline))
     staged = set(_staged_paths(repo))
     unstaged = set(_unstaged_paths(repo))
     reasons: list[str] = []
@@ -437,6 +439,12 @@ def _bootstrap_scope(repo: Path, baseline: BootstrapBaseline) -> tuple[bool, tup
     if diff_check.returncode != 0:
         reasons.append("BOOTSTRAP_DIFF_CHECK_FAILED")
     return not reasons, tuple(dict.fromkeys(reasons))
+
+
+def _bootstrap_paths(baseline: BootstrapBaseline) -> tuple[str, ...]:
+    paths = {path for path, _ in baseline.files}
+    paths.update({baseline.self_path, ".iskin/version", INSTALLATION_MANIFEST_PATH})
+    return tuple(sorted(paths))
 
 
 def _head_has(repo: Path, relative: str) -> bool:
@@ -793,31 +801,34 @@ def _blocked(
 
 def _build_bootstrap_evaluation(repo: Path, action: str) -> Evaluation:
     baseline = _validate_bootstrap_baseline(repo)
+    bootstrap_paths = _bootstrap_paths(baseline)
     scope_valid, scope_reasons = _bootstrap_scope(repo, baseline)
-    allowed = ["discover", "prepare_approval", "read_only_recovery"]
-    if scope_valid:
-        allowed.insert(0, "bootstrap_checkpoint")
-    if action == "bootstrap_checkpoint" and not scope_valid:
+    staged = set(_staged_paths(repo))
+    if not staged:
         return Evaluation(
-            STATUS_DISCOVERY,
-            tuple(("INITIAL_BASELINE_UNCOMMITTED", *scope_reasons)),
+            STATUS_BOOTSTRAP,
+            ("INITIAL_BASELINE_UNCOMMITTED", "BOOTSTRAP_BASELINE_READY"),
             None,
             None,
             "none",
             "discovery",
-            tuple(allowed),
+            ("read_only_recovery", "stage_bootstrap_baseline"),
             "not_applicable_without_approval_event",
+            bootstrap_paths,
         )
-    return Evaluation(
-        STATUS_DISCOVERY,
-        ("INITIAL_BASELINE_UNCOMMITTED",),
-        None,
-        None,
-        "none",
-        "discovery",
-        tuple(allowed),
-        "not_applicable_without_approval_event",
-    )
+    if scope_valid:
+        return Evaluation(
+            STATUS_BOOTSTRAP,
+            ("INITIAL_BASELINE_UNCOMMITTED", "BOOTSTRAP_SCOPE_STAGED"),
+            None,
+            None,
+            "none",
+            "discovery",
+            ("read_only_recovery", "bootstrap_checkpoint"),
+            "not_applicable_without_approval_event",
+            bootstrap_paths,
+        )
+    return _blocked(None, *scope_reasons, approval_state="none")
 
 
 def _build_evaluation(repo: Path, action: str) -> Evaluation:
@@ -948,7 +959,7 @@ def evaluate(candidate: Path, action: str) -> tuple[Evaluation, Path | None]:
 
 
 def _payload(result: Evaluation, repo: Path | None) -> dict[str, Any]:
-    forbidden = tuple(action for action in CRITICAL_ACTIONS if action not in result.allowed_actions)
+    forbidden = tuple(action for action in ACTIONS if action not in result.allowed_actions)
     return {
         "schema_version": 1,
         "status": result.status,
@@ -961,6 +972,7 @@ def _payload(result: Evaluation, repo: Path | None) -> dict[str, Any]:
         "lifecycle": result.lifecycle,
         "human_evidence_boundary": result.human_evidence_boundary,
         "repo_root": str(repo) if repo is not None else None,
+        "allowed_paths": list(result.allowed_paths),
     }
 
 

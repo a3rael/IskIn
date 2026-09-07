@@ -6,7 +6,7 @@
 
 1. Начни с глобального `iskin-control-pilot`.
 2. Выполни recovery preflight через `iskin-understand-state`.
-3. Если `HEAD` отсутствует, вызови `python3 .iskin/policy_gate.py --action bootstrap_checkpoint`. При `DISCOVERY_ALLOWED` сначала проверь JSON gate, staged scope и `git diff --cached --check`, затем создай только локальный технический initial commit. При запрете ничего не staging/commit и верни blocker. После commit повтори gate и только затем переходи к discovery.
+3. Если `HEAD` отсутствует, ожидай `BOOTSTRAP_REQUIRED`: discovery и approval preparation запрещены. Вызови `python3 .iskin/policy_gate.py --action stage_bootstrap_baseline`, stage-ь только возвращённый exact `allowed_paths` через scoped `git add -- <paths>`, перечитай staged scope и `git diff --cached --check`, затем вызови `--action bootstrap_checkpoint`. Gate сам не staging/commit-ит. Только при exit `0` создай локальный технический initial commit; при запрете верни blocker. После commit повтори gate и только затем переходи к discovery.
 4. Каноническое состояние читай из Git, `product-memory/`, evidence и `telemetry/`; transcript Hermes используй только как вспомогательный источник.
 5. При отсутствии global skills ИскИн или структуры проекта сообщи конкретный blocker до изменения продукта; вне структуры ИскИн навык неприменим.
 
