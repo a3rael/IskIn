@@ -17,6 +17,32 @@ Recovery отдельно проверяет approval state по существ�
 
 Approval нельзя выводить из transcript, заполненного intent, outcome status, выбранного варианта или существующего diff. Должны быть проверены `package_ref`, фактически заданный `question`, фактический `human_response`, `actor` и `implementation_authorized: true` в записи `product-memory/decisions.md`.
 
+## Pre-approval checkpoint
+
+Registry `product-memory/approval-packages.md` указывает на отдельный канонический файл `product-memory/approval-packages/<package_id>.md`. Каждый package-файл имеет уникальный `package_id`, полный набор обязательных разделов и `package_paths`. Пакет должен существовать в durable state, а не только в transcript или dirty tree.
+
+Pre-approval checkpoint — отдельный локальный commit между подготовкой пакета и его показом человеку. До показа человеку он фиксирует immutable revision пакета. `checkpoint_sha` не записывается в этот пакет и не может быть известен внутри создаваемого commit; SHA появляется только в последующем approval event.
+
+Допустимый pre-approval checkpoint содержит только process/product description и durable discovery state: approval package и перечисленные в нём описательные `product-memory/` файлы, без реализации. Он не содержит продуктового кода. Он не содержит product evidence, proof-record или `evidence/runs/`. Этот checkpoint с продуктовым кодом непригоден для approval.
+
+Если пакет существует только в dirty tree, implementation blocked. Если до попытки pre-approval checkpoint уже обнаружены product code, product evidence или иное последствие реализации, checkpoint задним числом не создаётся: recovery возвращает `process-blocked`, сохраняет состояние и не легитимизирует уже сделанные изменения.
+
+После успешного commit Hermes показывает человеку весь пакет, package ID и checkpoint SHA в одном сообщении. Только затем задаётся прямой вопрос, а ответ принимается в следующем человеческом ходе. Approval event обязан содержать:
+
+```text
+package_displayed_in_previous_agent_turn: true
+package_id: <package ID>
+checkpoint_sha: <40-hex checkpoint SHA>
+approval_question: <фактически заданный вопрос>
+human_response: <фактический ответ человека>
+actor: <actor>
+implementation_authorized: true
+```
+
+Фраза «авторизую полный пакет» без подтверждённого показа не является approval. Generic «продолжай» и разрешение отдельного технического действия не являются lifecycle approval.
+
+Для проверки drift recovery получает `package_paths` из revision checkpoint и проверяет, что содержимое каждого package_path байтово совпадает с checkpoint. После изменения любого package_path прежний approval недействителен. Требуются новый package ID, новый checkpoint и новый human approval; история не переписывается.
+
 ## Clean tree
 
 При clean tree `HEAD` — last stable checkpoint. Из проектных источников должны восстанавливаться active outcome, lifecycle, актуальное evidence и next action. Актуальное evidence не повторяется без evidence-significant причины.

@@ -10,3 +10,5 @@
 | `quality-gates.md` | Контракт продуктовых гейтов и канонического evidence |
 | `evidence-provenance.md` | Scopes, manifest, fingerprints и события invalidation |
 | `git-checkpoint-recovery.md` | Единственный канонический контракт Git checkpoint и recovery между сессиями |
+
+Registry pre-approval package находится в `product-memory/approval-packages.md`, а immutable package-файл — в `product-memory/approval-packages/<package_id>.md`; revision фиксируется Git checkpoint до показа человеку.

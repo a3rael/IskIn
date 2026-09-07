@@ -19,9 +19,10 @@ Use only after a recovery snapshot confirms an IskIn repository with `process/`,
 1. Read `process/action-selection.md` and `process/autonomy-policy.md` with the recovered outcome, dependencies, evidence gaps, and authority boundaries.
 2. Reject action selection if active outcome, lifecycle, checkpoint state, relevant evidence, authority, or approval state is not sufficiently confirmed. Return the missing fact or confirmed blocker instead.
 3. Consider the allowed candidates. Prefer state reconciliation, a mandatory evidence gap, blocker reduction, regression repair, or the nearest approved outcome as defined by `process/action-selection.md`.
-4. If a complete approval package and durable approval event with `implementation_authorized: true` are absent, select only discovery, package preparation, or waiting for the human decision. Do not select implementation or product proof because of a clarification answer, selected option, agreement with one package element, lack of objection, or a filled intent.
-5. Select exactly one smallest reversible and observable action. State its expected evidence, stopping condition, and whether it may write files.
-6. Record the choice only when the current authority and process policy permit that write; otherwise return the choice and required human decision without writing.
+4. If a complete approval package in its immutable package file, a pre-approval checkpoint commit made before display, or a durable approval event with `implementation_authorized: true` is absent, select only discovery, package preparation, or waiting for the human decision. Do not select implementation or product proof because of a clarification answer, selected option, agreement with one package element, lack of objection, a generic «продолжай», or a technical authority grant.
+5. Reject approval when the package was not shown in the previous agent turn, when the event references another package ID/checkpoint SHA, or when any package path drifted after the checkpoint.
+6. Select exactly one smallest reversible and observable action. State its expected evidence, stopping condition, and whether it may write files.
+7. Record the choice only when the current authority and process policy permit that write; otherwise return the choice and required human decision without writing.
 
 ## Authority boundary
 

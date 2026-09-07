@@ -20,9 +20,10 @@ Confirm that the current repository has Git metadata and the IskIn project struc
 2. Inspect Git branch, `HEAD`, status, and diff without changing the index or worktree.
 3. Read product memory, evidence/proof records, and telemetry. Identify the active outcome, lifecycle, authority boundaries, last completed action, next recorded action, and approval state.
 4. If the worktree is clean, identify `HEAD` as the last stable checkpoint. If it is dirty, treat it as a possible interruption between checkpoints; separate confirmed changes from unknown effects and evidence gaps.
-5. Report approval separately as `package absent|incomplete|prepared|approved`, direct question present|absent, durable event present|absent|inconsistent, and `implementation_authorized` granted|not granted. Never infer approval from transcript, a filled intent, an outcome status, a selected option, lack of objection, or a code diff.
-6. If product changes exist in a dirty tree without a confirmed approval event, classify the state as `process-blocked` and do not continue implementation, product proof, or checkpoint creation.
-7. Return a compact recovery snapshot: confirmed facts, unverified facts, active outcome/lifecycle, approval state, checkpoint state, blockers, authority boundaries, and information required before choosing an action.
+5. Report approval separately as `package absent|incomplete|prepared|approved`, pre-approval checkpoint present|absent|invalid, direct question present|absent, package shown in the previous agent turn|not confirmed, durable event present|absent|inconsistent, and `implementation_authorized` granted|not granted. Never infer approval from transcript, a filled intent, an outcome status, a selected option, lack of objection, or a code diff.
+6. A package that exists only in the dirty tree, a checkpoint containing product code/evidence, or a package not shown before the approval response is not approval. If product changes exist in a dirty tree without a confirmed approval event, classify the state as `process-blocked` and do not continue implementation, product proof, or checkpoint creation.
+7. For an approval event, verify package ID, checkpoint SHA, `package_displayed_in_previous_agent_turn: true`, the exact question and human response, actor, authorization, and byte equality of every package path against the checkpoint.
+8. Return a compact recovery snapshot: confirmed facts, unverified facts, active outcome/lifecycle, approval state, checkpoint state, blockers, authority boundaries, and information required before choosing an action.
 
 ## Authority boundary
 

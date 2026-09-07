@@ -19,10 +19,11 @@ Use only for an IskIn Git repository containing `process/`, `product-memory/`, a
 1. In every new session, begin with `iskin-understand-state`. Treat transcript only as supporting context, never as the canonical process state.
 2. Use `iskin-choose-next-action` only after recovery produces confirmed state, including the approval state. Stop on a confirmed incompatibility of project state, lifecycle, process, approval, or evidence/provenance contract.
 3. Continue from the last stable checkpoint when the worktree is clean. When it is dirty, investigate and verify unfinished changes before any action; never blindly reset, stage, commit, or discard them.
-4. Before routing to `iskin-change-product` or `iskin-prove-result`, require a complete approval package and a durable approval event in `product-memory/decisions.md` with `implementation_authorized: true`. A discovery response, selected option, agreement with one package element, or lack of objection never satisfies this barrier. Without it, route only to discovery, package preparation, or a human blocker.
-5. Route one bounded change through `iskin-change-product`, then route evidence work through `iskin-prove-result`. Invoke `iskin-challenge-result` only for an established trigger.
-6. Avoid repeating current evidence without a documented reason. Create a local checkpoint commit only after one complete verified transition satisfies `process/autonomy-policy.md` and the canonical model in `docs/architecture/v0.4-git-checkpoint-experiment.md`.
-7. Reconcile outcome/lifecycle, evidence, telemetry, approval state, authority boundaries, human interventions, and next permitted action after a meaningful cycle.
+4. Before routing to `iskin-change-product` or `iskin-prove-result`, require a complete approval package in the immutable file referenced by registry `product-memory/approval-packages.md`, a pre-approval checkpoint commit made before the package was shown, and a durable approval event in `product-memory/decisions.md` with `implementation_authorized: true`. A discovery response, selected option, agreement with one package element, or lack of objection never satisfies this barrier. Without it, route only to discovery, package preparation, or the human decision.
+5. Confirm that the approval event references the same package ID and checkpoint SHA shown to the human, and that the package paths still match that checkpoint. If the package changed, invalidate the old approval and require a new package/checkpoint/approval sequence.
+6. Route one bounded change through `iskin-change-product`, then route evidence work through `iskin-prove-result`. Invoke `iskin-challenge-result` only for an established trigger.
+7. Avoid repeating current evidence without a documented reason. Create a local checkpoint commit only after one complete verified transition satisfies `process/autonomy-policy.md` and the canonical model in `docs/architecture/v0.4-git-checkpoint-experiment.md`.
+8. Reconcile outcome/lifecycle, evidence, telemetry, approval state, authority boundaries, human interventions, and next permitted action after a meaningful cycle.
 
 ## Authority boundary
 

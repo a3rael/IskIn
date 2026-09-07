@@ -12,11 +12,11 @@ metadata:
 
 ## Applicability
 
-Use only for an IskIn outcome with a complete approved approval package, a durable approval event with `implementation_authorized: true`, approved applicable gates, and a defined evidence scope. Otherwise return `not applicable` or `blocked` without changing files. Read-only diagnosis of existing state is allowed and does not create product proof.
+Use only for an IskIn outcome with a complete approved approval package, a pre-approval checkpoint commit, a durable approval event with `implementation_authorized: true`, approved applicable gates, and a defined evidence scope. The event must reference the package ID and checkpoint SHA, prove that the package was shown in the previous agent turn, and pass package-path drift checks. Otherwise return `not applicable` or `blocked` without changing files. Read-only diagnosis of existing state is allowed and does not create product proof.
 
 ## Procedure
 
-1. Read the outcome, approval event, `process/quality-gates.md`, `process/evidence-provenance.md`, current evidence, and uncertainties.
+1. Read the outcome, approval package at its checkpoint revision, approval event, `process/quality-gates.md`, `process/evidence-provenance.md`, current evidence, and uncertainties.
 2. Run only applicable canonical checks. Create or update canonical evidence, provenance, and proof records according to the project contract; read back every record written.
 3. Record the version or revision of the IskIn skill bundle used for the evidence in the permitted evidence or telemetry record.
 4. Reuse existing evidence only after verifying its scope, provenance, and proof relevance. A textual skill improvement alone does not invalidate evidence.

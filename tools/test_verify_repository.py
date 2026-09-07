@@ -87,7 +87,7 @@ class VerifyRepositoryTests(unittest.TestCase):
     def test_v04_template_contract_requires_global_runtime_and_recovery(self) -> None:
         (self.template / "AGENTS.md").write_text(
             "Start with global `iskin-control-pilot`; recovery uses `iskin-understand-state`. "
-            "Read `runtime/skills/`, `product-memory/`, and `telemetry/`; "
+            "Read `runtime/skills/`, `product-memory/`, `product-memory/approval-packages.md`, and `telemetry/`; "
             "use `process/git-checkpoint-recovery.md`; Git is mandatory.\n",
             encoding="utf-8",
         )
@@ -97,8 +97,23 @@ class VerifyRepositoryTests(unittest.TestCase):
             "# Git checkpoint and recovery\n\n"
             "## Clean tree\nHEAD is the last stable checkpoint for the active outcome, lifecycle, evidence, and next action.\n\n"
             "## Dirty tree\ndirty means an interruption is possible; investigate changes, read-back side effects, and never blindly reset, delete, stage, or commit.\n\n"
-            "## Checkpoint commit\nAfter a verified transition and read-back, check git diff --cached --check.\n\n"
+            "## Pre-approval checkpoint\nA pre-approval checkpoint has package_id and package_paths, occurs before display, contains no product code or product evidence, and package_displayed_in_previous_agent_turn: true is recorded only later.\n\n"
+            "## Checkpoint commit\nAfter a verified transition and read-back, check git diff --cached --check. checkpoint_sha is not written in the package.\n\n"
             "## Skill bundle\nRecord skill bundle revision; a textual skill change alone does not invalidate evidence. Stop on incompatible contracts and do not use automatic update.\n",
+            encoding="utf-8",
+        )
+        package = self.template / "product-memory" / "approval-packages.md"
+        package.parent.mkdir(parents=True, exist_ok=True)
+        package.write_text(
+            "registry only\n",
+            encoding="utf-8",
+        )
+        package_schema = self.template / "product-memory" / "approval-packages" / "README.md"
+        package_schema.parent.mkdir(parents=True, exist_ok=True)
+        package_schema.write_text(
+            "package_id package_paths intent и ценность граница MVP outcomes и наблюдаемое поведение "
+            "обязательные gates и evidence существенные uncertainties, риски, зависимости и ограничения "
+            "checkpoint_sha: не записывать в этот пакет\n",
             encoding="utf-8",
         )
 

@@ -21,6 +21,7 @@
 - выбор действия — `process/action-selection.md`;
 - gates и provenance — `process/quality-gates.md`, `process/evidence-provenance.md`;
 - Git checkpoint и recovery — `process/git-checkpoint-recovery.md`.
+- pre-approval package registry/files — `product-memory/approval-packages.md`, `product-memory/approval-packages/<package_id>.md`; approval event — `product-memory/decisions.md`.
 
 Git обязателен. Чистое дерево восстанавливается от последнего checkpoint в `HEAD`; dirty tree сначала исследуется без слепого reset, delete, stage или commit. Remote, push, tag, merge и публикация требуют отдельного human decision.
 

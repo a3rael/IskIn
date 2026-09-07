@@ -41,6 +41,8 @@ EXPECTED_TEMPLATE_FILES = {
     "product-memory/intent.md",
     "product-memory/outcomes.md",
     "product-memory/uncertainties.md",
+    "product-memory/approval-packages.md",
+    "product-memory/approval-packages/README.md",
     "product-memory/decisions.md",
     "product-memory/evidence.md",
     "telemetry/README.md",
@@ -261,7 +263,7 @@ def check_json() -> Check:
 def check_product_memory_empty() -> Check:
     files = [
         TEMPLATE / "product-memory" / name
-        for name in ("intent.md", "outcomes.md", "uncertainties.md", "decisions.md", "evidence.md")
+        for name in ("intent.md", "outcomes.md", "uncertainties.md", "approval-packages.md", "decisions.md", "evidence.md")
     ]
     filled: list[str] = []
     for path in files:
@@ -275,10 +277,14 @@ def check_product_memory_empty() -> Check:
 def check_template_contract() -> Check:
     agents = TEMPLATE / "AGENTS.md"
     recovery = TEMPLATE / "process" / "git-checkpoint-recovery.md"
+    package = TEMPLATE / "product-memory" / "approval-packages.md"
+    package_schema = TEMPLATE / "product-memory" / "approval-packages" / "README.md"
     errors: list[str] = []
     try:
         agents_text = agents.read_text(encoding="utf-8")
         recovery_text = recovery.read_text(encoding="utf-8")
+        package_text = package.read_text(encoding="utf-8")
+        package_schema_text = package_schema.read_text(encoding="utf-8")
     except (OSError, UnicodeError) as exc:
         return _check("template_contract", False, f"cannot read contract: {exc}")
 
@@ -288,6 +294,7 @@ def check_template_contract() -> Check:
         "runtime/skills/",
         "process/git-checkpoint-recovery.md",
         "product-memory/",
+        "product-memory/approval-packages.md",
         "telemetry/",
         "Git",
     )
@@ -316,11 +323,32 @@ def check_template_contract() -> Check:
         "textual skill change",
         "incompatible",
         "automatic update",
+        "pre-approval checkpoint",
+        "package_id",
+        "package_paths",
+        "product code",
+        "product evidence",
+        "checkpoint_sha",
+        "package_displayed_in_previous_agent_turn: true",
     )
     recovery_text_lower = recovery_text.lower()
     for marker in required_recovery:
         if marker.lower() not in recovery_text_lower:
             errors.append(f"recovery missing={marker}")
+
+    required_package = (
+        "package_id",
+        "package_paths",
+        "intent и ценность",
+        "граница MVP",
+        "outcomes и наблюдаемое поведение",
+        "обязательные gates и evidence",
+        "существенные uncertainties, риски, зависимости и ограничения",
+        "checkpoint_sha: не записывать в этот пакет",
+    )
+    for marker in required_package:
+        if marker.lower() not in package_schema_text.lower():
+            errors.append(f"approval_package missing={marker}")
 
     for path in TEMPLATE.rglob("*.md"):
         for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):

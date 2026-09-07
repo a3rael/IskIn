@@ -21,6 +21,8 @@
 
 Выбор implementation action, изменение продуктового кода, создание product outcome или создание product evidence до этого события запрещены. Нельзя считать approval существующим по ответу на уточняющий вопрос, выбранному варианту, согласию с отдельным элементом пакета, отсутствию возражений или заполненному intent.
 
+До выбора implementation action должен существовать pre-approval checkpoint commit с полным `product-memory/approval-packages.md`. Пакет только в dirty tree, checkpoint с product code/evidence или отсутствие показа пакета блокируют реализацию. Generic-команда «продолжай работу» и разрешение технического действия не являются lifecycle approval.
+
 После approval Hermes по-прежнему выбирает ровно одно малое обратимое действие в пределах утверждённого package.
 
 Открытый необязательный process или tooling gap не блокирует следующий независимый outcome, если не препятствует обязательному продуктовому гейту. Открытый обязательный product evidence gap блокирует следующий независимый outcome, кроме явно записанного human override.

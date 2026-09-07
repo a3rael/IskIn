@@ -12,12 +12,12 @@ metadata:
 
 ## Applicability
 
-Use only in an IskIn Git repository after recovery identifies one active outcome, one permitted action, a complete approved approval package, and a durable approval event with `implementation_authorized: true`. Otherwise return `not applicable` or `blocked` without changing files.
+Use only in an IskIn Git repository after recovery identifies one active outcome, one permitted action, a complete approved approval package, its pre-approval checkpoint commit, and a durable approval event with `implementation_authorized: true`. The event must reference the package ID and checkpoint SHA whose package paths remain unchanged. Otherwise return `not applicable` or `blocked` without changing files.
 
 ## Procedure
 
 1. Read the active outcome, approval event, and `process/autonomy-policy.md`, `process/action-selection.md`, `process/quality-gates.md`, and `process/evidence-provenance.md`.
-2. Make only the selected bounded change inside the approved package. Do not alter intent, quality gates, evidence scope, lifecycle policy, or authority boundaries without the required human decision.
+2. Make only the selected bounded change inside the approved package. Do not alter package paths, intent, quality gates, evidence scope, lifecycle policy, or authority boundaries without invalidating the approval and requiring a new pre-approval checkpoint and human gate.
 3. Run every applicable check for this transition. Treat an unknown external result or unresolved error as incomplete, not as success.
 4. Synchronize product memory and telemetry with the observed result, then set only the lifecycle state supported by the transition.
 5. Prepare the precise checkpoint scope. Apply the canonical checkpoint model in `docs/architecture/v0.4-git-checkpoint-experiment.md`: read back durable records, exclude unrelated changes, and create a local checkpoint commit only after all required conditions are true.

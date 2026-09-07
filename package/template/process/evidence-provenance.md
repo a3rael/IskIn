@@ -37,6 +37,8 @@ scopes:
 
 Scope перечисляется отдельно для каждого гейта. Нельзя заменять его неопределённой фразой «все влияющие файлы».
 
+Approval package может до реализации фиксировать только требуемые gates и evidence scopes. Это план доказательства, а не product evidence: pre-approval checkpoint не создаёт report, manifest, proof-record или evidence run.
+
 ## Report и proof-record
 
 После запуска создаются новые versioned `report.md` и `proof-record.json`. Они должны содержать один и тот же `run_id`. Proof-record связывает manifest и report их SHA-256, gate results, overall result и durable artifacts.

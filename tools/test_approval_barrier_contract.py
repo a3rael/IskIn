@@ -7,6 +7,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 TEMPLATE_PROCESS = ROOT / "package" / "template" / "process"
 DECISIONS_TEMPLATE = ROOT / "package" / "template" / "product-memory" / "decisions.md"
+APPROVAL_PACKAGES_TEMPLATE = ROOT / "package" / "template" / "product-memory" / "approval-packages.md"
+APPROVAL_PACKAGE_SCHEMA_TEMPLATE = ROOT / "package" / "template" / "product-memory" / "approval-packages" / "README.md"
 RUNTIME_SKILLS = ROOT / "runtime" / "skills"
 
 
@@ -87,32 +89,110 @@ class ApprovalBarrierContractTests(unittest.TestCase):
         self.assertIn("do not continue implementation, product proof, or checkpoint creation", understand)
         self.assertIn("не удаляет, не откатывает и не stage-ит", recovery)
 
+    def test_preapproval_package_has_immutable_checkpoint_contract(self) -> None:
+        registry = read(APPROVAL_PACKAGES_TEMPLATE)
+        package = read(APPROVAL_PACKAGE_SCHEMA_TEMPLATE)
+        recovery = read(TEMPLATE_PROCESS / "git-checkpoint-recovery.md")
+
+        self.assertIn("registry", registry)
+        self.assertIn("approval-packages/<package_id>.md", registry)
+
+        for marker in (
+            "package_id",
+            "package_paths",
+            "intent и ценность",
+            "граница MVP",
+            "outcomes и наблюдаемое поведение",
+            "обязательные gates и evidence",
+            "существенные uncertainties, риски, зависимости и ограничения",
+            "checkpoint_sha: не записывать в этот пакет",
+        ):
+            self.assertIn(marker, package)
+
+        for marker in (
+            "pre-approval checkpoint",
+            "показа человеку",
+            "не содержит продуктового кода",
+            "не содержит product evidence",
+            "пакет существует только в dirty tree",
+            "checkpoint с продуктовым кодом непригоден",
+        ):
+            self.assertIn(marker, recovery)
+
+    def test_approval_requires_displayed_package_and_following_human_turn(self) -> None:
+        policy = read(TEMPLATE_PROCESS / "autonomy-policy.md")
+        recovery = read(TEMPLATE_PROCESS / "git-checkpoint-recovery.md")
+        decisions = read(DECISIONS_TEMPLATE)
+
+        for marker in (
+            "показывает человеку весь пакет",
+            "package ID",
+            "checkpoint SHA",
+            "следующем человеческом ходе",
+            "не показан",
+            "package_displayed_in_previous_agent_turn: true",
+            "approval_question",
+        ):
+            self.assertTrue(marker in policy or marker in recovery or marker in decisions, marker)
+
+    def test_generic_and_technical_grants_are_not_lifecycle_approval(self) -> None:
+        policy = read(TEMPLATE_PROCESS / "autonomy-policy.md")
+        action_selection = read(TEMPLATE_PROCESS / "action-selection.md")
+
+        for marker in (
+            "«продолжай работу»",
+            "технического действия",
+            "не является lifecycle approval",
+            "не предлагает вариант ответа, утверждающий не показанный пакет",
+        ):
+            self.assertTrue(marker in policy or marker in action_selection, marker)
+
+    def test_package_drift_invalidates_previous_approval(self) -> None:
+        policy = read(TEMPLATE_PROCESS / "autonomy-policy.md")
+        recovery = read(TEMPLATE_PROCESS / "git-checkpoint-recovery.md")
+
+        for marker in (
+            "каждого package_path",
+            "байтово совпадает",
+            "прежний approval недействителен",
+            "новый package ID",
+            "новый checkpoint",
+            "новый human approval",
+            "история не переписывается",
+        ):
+            self.assertTrue(marker in policy or marker in recovery, marker)
+
     def test_all_five_global_skills_enforce_the_barrier(self) -> None:
         required_by_skill = {
             "iskin-control-pilot": (
                 "complete approval package",
                 "implementation_authorized: true",
                 "discovery response",
+                "pre-approval checkpoint",
             ),
             "iskin-understand-state": (
                 "approval state",
                 "Never infer approval",
                 "process-blocked",
+                "pre-approval checkpoint",
             ),
             "iskin-choose-next-action": (
                 "durable approval event",
                 "select only discovery",
                 "does not treat a discovery response as approval",
+                "checkpoint commit",
             ),
             "iskin-change-product": (
                 "complete approved approval package",
                 "implementation_authorized: true",
                 "insufficient authority",
+                "pre-approval checkpoint",
             ),
             "iskin-prove-result": (
                 "complete approved approval package",
                 "implementation_authorized: true",
                 "cannot receive canonical product proof",
+                "pre-approval checkpoint",
             ),
         }
         for skill_name, markers in required_by_skill.items():

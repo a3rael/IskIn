@@ -16,6 +16,7 @@
 - Выбор следующего действия: `process/action-selection.md`.
 - Product gates и evidence: `process/quality-gates.md`, `process/evidence-provenance.md`.
 - Git checkpoint и recovery: `process/git-checkpoint-recovery.md`.
+- Pre-approval package: registry `product-memory/approval-packages.md` and files `product-memory/approval-packages/<package_id>.md`; approval event: `product-memory/decisions.md`.
 - Определения telemetry: `telemetry/metrics.md`; фактические циклы: `telemetry/run-log.md`.
 
 ## Git и полномочия

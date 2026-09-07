@@ -60,6 +60,22 @@ Discovery включает исследование, обсуждение вар
 
 Только такой event является основанием реализации и canonical product proof. Заполненные `intent.md`, `outcomes.md` или обычная запись решения без этого event не доказывают approval.
 
+### Pre-approval Git checkpoint
+
+До human gate Hermes фиксирует полный пакет отдельным локальным `pre-approval checkpoint` commit. Этот commit создаётся после подготовки пакета, но до того, как Hermes показывает человеку весь пакет и задаёт вопрос. Он является immutable revision утверждаемого пакета, а не approval и не разрешением реализации.
+
+Pre-approval checkpoint может содержать только durable discovery и описание продукта: registry `product-memory/approval-packages.md`, конкретный immutable package-файл `product-memory/approval-packages/<package_id>.md`, перечисленные в `package_paths` файлы описания продукта, а также process/telemetry-запись подготовки. Он не содержит продуктового кода, product evidence, proof-record, `evidence/runs/` или других последствий реализации. `checkpoint_sha` запрещено записывать в сам пакет: этот SHA появляется только в последующем approval event.
+
+Если пакет существует только в dirty tree, implementation blocked. Если рабочее дерево до checkpoint уже содержит продуктовый код, product evidence или другое последствие реализации, pre-approval checkpoint задним числом запрещён; recovery сохраняет состояние и возвращает `process-blocked`. Checkpoint с продуктовым кодом непригоден для approval.
+
+После commit Hermes показывает человеку весь пакет в компактном понятном виде, явно сообщает `package ID` и `checkpoint SHA`, а затем задаёт один прямой вопрос. Approval допускается только в следующем человеческом ходе после фактического показа пакета. Фраза «авторизую полный пакет» без такого показа недействительна. Hermes не предлагает вариант ответа, утверждающий не показанный пакет.
+
+Approval event в `product-memory/decisions.md` должен дополнительно содержать `package_displayed_in_previous_agent_turn: true`, `package_id`, `checkpoint_sha`, `approval_question`, фактический `human_response`, `actor` и `implementation_authorized: true`. Вопрос и event должны ссылаться на тот же package ID и checkpoint SHA.
+
+Approval остаётся действительным только пока содержимое каждого `package_path` байтово совпадает с revision checkpoint. После изменения любого файла, входящего в пакет, прежний approval недействителен: требуется новый package ID, новый checkpoint и новый human approval. История не переписывается.
+
+Generic-команда «продолжай работу», ответ discovery или разрешение отдельного технического действия может быть authority grant для этого действия, но не является lifecycle approval и не переводит intent/outcome в approved.
+
 ## Граница `proved` и `accepted`
 
 Hermes может самостоятельно перевести outcome в `proved`, когда все заранее утверждённые обязательные product gates пройдены, каноническое evidence и proof-record созданы, а обязательный fingerprint checkpoint подтвердил актуальность scope. `proved` — это вывод из полного актуального доказательства; отдельный human acceptance для этого перехода не требуется.
