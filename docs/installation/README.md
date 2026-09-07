@@ -39,7 +39,7 @@ install-iskin.py
 SHA256SUMS
 ```
 
-Внутри архива ожидается корень `iskin-v0.3.0/` с `VERSION`, `package-manifest.json` и `template/`. Точная schema v1 manifest зафиксирована в `docs/decisions/2026-09-02-v0.3-package-manifest-v1.md`: верхний уровень содержит только `schema_version`, `release_version`, `root`, `template_root` и `files`; каждая запись `files` содержит только `path` и строчный `sha256`; список отсортирован и является полным allowlist файлов шаблона. Пути в `files` относительны `template_root`; `VERSION`, manifest и каталоги в список не входят. Архив не содержит установщик и `SHA256SUMS`.
+Внутри архива ожидается корень `iskin-v0.3.0/` с `VERSION`, `package-manifest.json` и `template/`. Точная schema v1 manifest зафиксирована в `docs/decisions/2026-09-02-v0.3-package-manifest-v1.md`: верхний уровень содержит только `schema_version`, `release_version`, `root`, `template_root` и `files`; каждая запись `files` содержит только `path` и строчный `sha256`; список отсортирован и является полным allowlist файлов шаблона. Пути в `files` относительны `template_root`; `VERSION`, manifest и контрольные суммы не входят в `files`. Полный package manifest описывает payload release, а installation manifest schema v1 фиксирует только immutable installation core и `.iskin/version`; `product-memory/` и `telemetry/` устанавливаются как mutable project state и не являются последующим immutable SHA allowlist.
 
 ## Локальная воспроизводимая сборка
 
@@ -79,9 +79,9 @@ python3 installer/build_release.py \\
 - `.iskin/version` существует и соответствует ожидаемой версии;
 - `.iskin/installation-manifest.json` существует и содержит проверенный SHA-256;
 - каждый обязательный файл структуры присутствует;
-- каждый установленный файл входит в manifest и не имеет неожиданных путей;
+- каждый установленный template-файл присутствует в payload, а каждый immutable core-файл и `.iskin/version` входит в installation manifest и не имеет неожиданных путей;
 - `AGENTS.md` и project-local skills, если они есть в manifest, имеют корректную структуру;
-- product memory и telemetry остаются пустыми шаблонами;
+- product memory и telemetry устанавливаются как пустые шаблоны, а последующие project-state/event изменения не считаются повреждением immutable core;
 - в пакете отсутствуют Budget- и toolchain-specific материалы;
 - установщик не создавал commit, remote или внешнюю публикацию.
 

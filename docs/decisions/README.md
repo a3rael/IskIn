@@ -17,6 +17,7 @@
 - `2026-09-06-v0.4-first-run-approval-observation.md` — наблюдение о misclassification discovery-ответа как approval и process correction для единого approval barrier.
 - `2026-09-07-v0.4-pre-approval-checkpoint.md` — решение о pre-approval Git checkpoint, immutable package revision, показе пакета и drift invalidation.
 - `2026-09-07-v0.4-executable-policy-gate.md` — решение о read-only machine-readable lifecycle gate, fail-closed exit codes и границе human evidence.
+- `2026-09-07-v0.4-policy-gate-state-and-approval-checkpoint.md` — решение о разделении immutable core и project state, append-only approval events и отдельном техническом approval checkpoint.
 - `2026-09-07-v0.4-second-recovery-observation.md` — наблюдение второго негативного recovery-прогона: частично сработавший barrier и необходимость executable read-only gate.
 - `2026-09-06-v0.4-git-checkpoint-experiment.md` — human decision о Git-based checkpoint, recovery, global skills и совместимости первого эксперимента v0.4.
 - `2026-09-06-v0.4-runtime-skill-boundary.md` — human decision о namespaced global skill bundle, его IskIn-specific границе и единственном каноническом источнике `runtime/skills/`.

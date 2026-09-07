@@ -10,7 +10,6 @@ DECISIONS_TEMPLATE = ROOT / "package" / "template" / "product-memory" / "decisio
 APPROVAL_PACKAGES_TEMPLATE = ROOT / "package" / "template" / "product-memory" / "approval-packages.md"
 APPROVAL_PACKAGE_SCHEMA_TEMPLATE = ROOT / "package" / "template" / "product-memory" / "approval-packages" / "README.md"
 POLICY_GATE_TEMPLATE = ROOT / "package" / "template" / ".iskin" / "policy_gate.py"
-POLICY_STATE_TEMPLATE = ROOT / "package" / "template" / ".iskin" / "policy_state.json"
 RUNTIME_SKILLS = ROOT / "runtime" / "skills"
 
 
@@ -45,21 +44,26 @@ class ApprovalBarrierContractTests(unittest.TestCase):
         self.assertIn("отдельным, прямым и явно содержать обе части", policy)
         self.assertIn("явно подтверждать и утверждение полного пакета, и разрешение реализации", policy)
 
-    def test_durable_approval_uses_existing_decisions_source(self) -> None:
+    def test_durable_approval_uses_append_only_event_and_decisions_reference(self) -> None:
         policy = read(TEMPLATE_PROCESS / "autonomy-policy.md")
         decisions = read(DECISIONS_TEMPLATE)
 
         for marker in (
-            "package_ref",
-            "question",
+            "approval_event_id",
+            "approval_event_path",
+            "package_id",
+            "checkpoint_sha",
+        ):
+            self.assertIn(marker, decisions)
+        for marker in (
+            "product-memory/approval-events/<event_id>.json",
             "human_response",
             "actor",
             "implementation_authorized: true",
         ):
-            self.assertIn(marker, decisions)
+            self.assertIn(marker, policy)
         self.assertIn("product-memory/decisions.md", policy)
-        self.assertIn("package_ref", policy)
-        self.assertIn("отдельный формат хранения или новый файл для этого не создаётся", policy)
+        self.assertIn("append-only", policy)
 
     def test_negative_approval_scenarios_are_explicitly_blocked(self) -> None:
         policy = read(TEMPLATE_PROCESS / "autonomy-policy.md")
@@ -162,11 +166,10 @@ class ApprovalBarrierContractTests(unittest.TestCase):
             "новый human approval",
             "история не переписывается",
         ):
-            self.assertTrue(marker in policy or marker in recovery, marker)
+            self.assertTrue(marker.lower() in policy.lower() or marker.lower() in recovery.lower(), marker)
 
     def test_executable_policy_gate_has_versioned_read_only_contract(self) -> None:
         gate = read(POLICY_GATE_TEMPLATE)
-        state = read(POLICY_STATE_TEMPLATE)
         for marker in (
             "Read-only, deterministic lifecycle policy gate",
             "DISCOVERY_ALLOWED",
@@ -176,11 +179,12 @@ class ApprovalBarrierContractTests(unittest.TestCase):
             "MACHINE_STATE_UNSUPPORTED",
             "GIT_CHECK_FAILED",
             "approval_display_is_conversational_evidence_not_cryptographic_proof",
+            "approval_checkpoint",
+            "UNSUPPORTED_PROJECT_STATE",
+            "product-memory/approval-events",
             "--action",
         ):
             self.assertIn(marker, gate)
-        for marker in ('"schema_version": 1', '"lifecycle": "discovery"', '"approval_state": "none"'):
-            self.assertIn(marker, state)
 
     def test_all_six_global_skills_call_or_require_the_gate(self) -> None:
         required_by_skill = {
@@ -211,7 +215,7 @@ class ApprovalBarrierContractTests(unittest.TestCase):
                 "pre-approval checkpoint",
             ),
             "iskin-choose-next-action": (
-                "durable approval event",
+                "append-only approval event",
                 "select only discovery",
                 "does not treat a discovery response as approval",
                 "checkpoint commit",
@@ -219,13 +223,13 @@ class ApprovalBarrierContractTests(unittest.TestCase):
             "iskin-change-product": (
                 "complete approved approval package",
                 "implementation_authorized: true",
-                "insufficient authority",
+                "any other exit",
                 "pre-approval checkpoint",
             ),
             "iskin-prove-result": (
                 "complete approved approval package",
                 "implementation_authorized: true",
-                "cannot receive canonical product proof",
+                "any other exit",
                 "pre-approval checkpoint",
             ),
         }

@@ -50,15 +50,17 @@ Discovery включает исследование, обсуждение вар
 
 ### Durable approval event
 
-После явного утверждения Hermes записывает machine-readable approval event в `.iskin/policy_state.json` и согласованную human-readable запись в существующий источник `product-memory/decisions.md`; отдельный формат хранения или новый файл для этого не создаётся. Машинная запись содержит:
+После явного утверждения Hermes записывает append-only machine-readable approval event в новый файл `product-memory/approval-events/<event_id>.json` и согласованную human-readable запись в `product-memory/decisions.md`. Event-файл является каноническим машинным источником; свободный Markdown не заменяет его. Машинная запись содержит:
 
-- `package_ref` — идентификатор или проверяемую ссылку на утверждённую версию полного пакета;
-- `question` — фактически заданный вопрос об утверждении пакета и разрешении реализации;
+- `event_id` — уникальный идентификатор append-only event;
+- `package_id` и `checkpoint_sha` — точные идентификатор и revision утверждённого полного пакета;
+- `package_paths` — точный список файлов, проверяемый относительно checkpoint;
+- `approval_question` — фактически заданный вопрос об утверждении пакета и разрешении реализации;
 - `human_response` — фактический ответ человека;
 - `actor`;
 - `implementation_authorized: true`.
 
-Только такой event является основанием реализации и canonical product proof. Заполненные `intent.md`, `outcomes.md` или обычная запись решения без этого event не доказывают approval.
+Только такой event является основанием реализации и canonical product proof. Заполненные `intent.md`, `outcomes.md` или обычная запись решения без этого event не доказывают approval. Event не перезаписывается: новый approval получает новый `event_id` и новую версию файла.
 
 ### Pre-approval Git checkpoint
 
@@ -70,7 +72,7 @@ Pre-approval checkpoint может содержать только durable disco
 
 После commit Hermes показывает человеку весь пакет в компактном понятном виде, явно сообщает `package ID` и `checkpoint SHA`, а затем задаёт один прямой вопрос. Approval допускается только в следующем человеческом ходе после фактического показа пакета. Фраза «авторизую полный пакет» без такого показа недействительна. Hermes не предлагает вариант ответа, утверждающий не показанный пакет.
 
-Approval event в `product-memory/decisions.md` должен дополнительно содержать `package_displayed_in_previous_agent_turn: true`, `package_id`, `checkpoint_sha`, `approval_question`, фактический `human_response`, `actor` и `implementation_authorized: true`. Вопрос и event должны ссылаться на тот же package ID и checkpoint SHA.
+Human-readable запись в `product-memory/decisions.md` должна содержать ссылки `approval_event_id`, `approval_event_path`, `package_id` и `checkpoint_sha`, совпадающие с event. Gate проверяет согласованность ссылок, но это не является криптографическим доказательством авторства человека или факта показа пакета.
 
 Approval остаётся действительным только пока содержимое каждого `package_path` байтово совпадает с revision checkpoint. После изменения любого файла, входящего в пакет, прежний approval недействителен: требуется новый package ID, новый checkpoint и новый human approval. История не переписывается.
 
@@ -100,6 +102,8 @@ Hermes может самостоятельно перевести outcome в `pr
 
 ## Executable lifecycle policy gate
 
-Критические переходы дополнительно проверяются локальной read-only программой `.iskin/policy_gate.py` по versioned state `.iskin/policy_state.json` и Git history. Она возвращает только `DISCOVERY_ALLOWED`, `AWAITING_APPROVAL`, `IMPLEMENTATION_ALLOWED` или `PROCESS_BLOCKED` и не записывает файлы, telemetry или Git state. Для конкретного действия exit `0` означает разрешение; отсутствие gate, повреждённый/неподдерживаемый state, ошибка Git, package drift, продуктовый код/evidence до approval или несогласованный lifecycle дают запрет.
+Критические переходы дополнительно проверяются локальной read-only программой `.iskin/policy_gate.py` по versioned event schema, append-only event history и Git history. Она возвращает только `DISCOVERY_ALLOWED`, `AWAITING_APPROVAL`, `IMPLEMENTATION_ALLOWED` или `PROCESS_BLOCKED` и не записывает файлы, telemetry или Git state. `approval_checkpoint` — отдельный action для технического commit уже записанного approval event; он не создаёт новый human gate. Для action-gate exit `0` означает разрешение именно запрошенного действия; отсутствие gate или неподдерживаемый project state фиксируются reason `UNSUPPORTED_PROJECT_STATE`, а повреждённая schema, ошибка Git, package drift, продуктовый код/evidence до approval или несогласованный lifecycle дают запрет.
+
+`read_only_recovery` и `status` могут вернуть exit `0`, чтобы сформировать диагностический отчёт о заблокированном состоянии. Навыки обязаны проверять одновременно exit code и machine-readable `status`; это измеряемое ограничение v0.4, но не capability broker, Git hook или OS-level enforcement.
 
 Gate проверяет порядок и байтовое соответствие проверяемых Git-событий, но не может криптографически доказать, что человек действительно видел conversational message. `package_displayed_in_previous_agent_turn: true` остаётся human/conversational evidence и должно быть подтверждено orchestration.

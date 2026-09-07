@@ -16,8 +16,8 @@ Use only for an IskIn outcome with a complete approved approval package, a pre-a
 
 ## Procedure
 
-1. Run `python3 .iskin/policy_gate.py --action prove_result` from the project root before any product check or evidence write. Exit `0` is required; on any other exit or `PROCESS_BLOCKED`, return the read-only gate JSON and stop without running product checks or writing telemetry/evidence.
-2. Read the outcome, approval package at its checkpoint revision, approval event, `process/quality-gates.md`, `process/evidence-provenance.md`, current evidence, and uncertainties.
+1. Run `python3 .iskin/policy_gate.py --action prove_result` from the project root before any product check or evidence write. Require exit `0` and `IMPLEMENTATION_ALLOWED`; on any other exit, missing gate, `UNSUPPORTED_PROJECT_STATE`, or `PROCESS_BLOCKED`, return the read-only gate JSON and stop without running product checks or writing telemetry/evidence.
+2. Read the outcome, approval package at its checkpoint revision, canonical event under `product-memory`, linked `decisions.md` reference, `process/quality-gates.md`, `process/evidence-provenance.md`, current evidence, and uncertainties.
 3. Run only applicable canonical checks. Create or update canonical evidence, provenance, and proof records according to the project contract; read back every record written.
 4. Record the version or revision of the IskIn skill bundle used for the evidence in the permitted evidence or telemetry record.
 5. Reuse existing evidence only after verifying its scope, provenance, and proof relevance. A textual skill improvement alone does not invalidate evidence.

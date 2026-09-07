@@ -109,7 +109,7 @@ python3 -m unittest tools.test_policy_gate -v
 python3 -m py_compile package/template/.iskin/policy_gate.py tools/test_policy_gate.py
 ```
 
-Тесты обязаны проверять JSON-статусы, fail-closed на повреждённом state и ошибке Git, порядок package/checkpoint/approval/product changes, deny для implementation/proof/checkpoint при `PROCESS_BLOCKED` и отсутствие изменений файлов, index, `HEAD` и внешнего состояния самим gate.
+Тесты обязаны проверять JSON-статусы, append-only event schema, orphaned/mismatching human references, fail-closed на unsupported project state и ошибке Git, порядок package/checkpoint/approval-checkpoint/product changes, exact staged approval scope, package drift, deny для implementation/proof/checkpoint при `PROCESS_BLOCKED` и отсутствие изменений файлов, index, `HEAD` и внешнего состояния самим gate.
 
 ### Изменены несколько областей
 

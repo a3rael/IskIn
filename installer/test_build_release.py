@@ -98,6 +98,9 @@ class BuildReleaseTests(unittest.TestCase):
                 list(manifest),
                 ["schema_version", "release_version", "root", "template_root", "files"],
             )
+            manifest_paths = {item["path"] for item in manifest["files"]}
+            self.assertIn(".iskin/policy_gate.py", manifest_paths)
+            self.assertNotIn(".iskin/policy_state.json", manifest_paths)
             self.assertEqual(manifest["schema_version"], 1)
             self.assertEqual(manifest["release_version"], VERSION)
             self.assertEqual(manifest["root"], "iskin-v0.3.0")

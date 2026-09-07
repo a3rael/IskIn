@@ -1,20 +1,19 @@
 #!/usr/bin/env python3
 """Read-only, deterministic lifecycle policy gate for an IskIn project.
 
-The gate reads the local machine state and Git history.  It never writes the
-worktree, index, telemetry, or any external system.  The approval event's
-``package_displayed_in_previous_agent_turn`` field is a durable assertion made
-by the orchestration layer; this program cannot cryptographically prove that a
-human actually saw a conversational message.
+The executable is installation-managed and immutable.  Project lifecycle
+state is represented by append-only JSON approval events under
+``product-memory/approval-events/``; no mutable state file is part of the
+installed core.  The gate never writes the worktree, index, telemetry, or an
+external system.  Conversational display and human authorship remain evidence
+boundaries that this program cannot cryptographically prove.
 """
 
 from __future__ import annotations
 
 import argparse
 import fnmatch
-import hashlib
 import json
-import os
 import re
 import subprocess
 import sys
@@ -22,12 +21,19 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
-SCHEMA_VERSION = 1
-STATE_PATH = ".iskin/policy_state.json"
+EVENT_SCHEMA_VERSION = 1
+EVENT_DIR = "product-memory/approval-events"
+DECISIONS_PATH = "product-memory/decisions.md"
 REGISTRY_PATH = "product-memory/approval-packages.md"
+GATE_PATH = ".iskin/policy_gate.py"
+LEGACY_STATE_PATH = ".iskin/policy_state.json"
 CHECKPOINT_PREFIX = "iskin: pre-approval checkpoint:"
+EVENT_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{1,127}$")
+PACKAGE_ID_RE = EVENT_ID_RE
 CHECKPOINT_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
-PACKAGE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{1,127}$")
+EVENT_REFERENCE_RE = re.compile(r"^\s*approval_event_id:\s*([^\s]+)\s*$", re.MULTILINE)
+EVENT_PATH_REFERENCE_RE = re.compile(r"^\s*approval_event_path:\s*([^\s]+)\s*$", re.MULTILINE)
+PACKAGE_REFERENCE_RE = re.compile(r"product-memory/approval-packages/([A-Za-z0-9][A-Za-z0-9._-]{1,127})\.md")
 
 STATUS_DISCOVERY = "DISCOVERY_ALLOWED"
 STATUS_AWAITING = "AWAITING_APPROVAL"
@@ -39,6 +45,7 @@ ACTIONS = (
     "prepare_approval",
     "pre_approval_checkpoint",
     "human_approval",
+    "approval_checkpoint",
     "change_product",
     "prove_result",
     "checkpoint",
@@ -46,7 +53,14 @@ ACTIONS = (
     "product_tests",
     "telemetry_write",
 )
-CRITICAL_ACTIONS = ("change_product", "prove_result", "checkpoint", "product_tests", "telemetry_write")
+CRITICAL_ACTIONS = (
+    "approval_checkpoint",
+    "change_product",
+    "prove_result",
+    "checkpoint",
+    "product_tests",
+    "telemetry_write",
+)
 UNVERIFIABLE_REASONS = {
     "GIT_CONTEXT_UNAVAILABLE",
     "GIT_CHECK_FAILED",
@@ -54,6 +68,7 @@ UNVERIFIABLE_REASONS = {
     "REQUIRED_STATE_UNREADABLE",
     "MACHINE_STATE_INVALID",
     "MACHINE_STATE_UNSUPPORTED",
+    "UNSUPPORTED_PROJECT_STATE",
     "READ_ONLY_CHECK_FAILED",
 }
 DEFAULT_PRODUCT_CODE_PATTERNS = (
@@ -87,18 +102,7 @@ class GateError(Exception):
 
     def __init__(self, *reason_codes: str) -> None:
         super().__init__(", ".join(reason_codes))
-        self.reason_codes = tuple(reason_codes)
-
-
-@dataclass(frozen=True)
-class State:
-    lifecycle: str
-    approval_state: str
-    package_id: str | None
-    package_paths: tuple[str, ...]
-    approval_event: dict[str, Any] | None
-    product_code_patterns: tuple[str, ...]
-    product_evidence_patterns: tuple[str, ...]
+        self.reason_codes = tuple(dict.fromkeys(reason_codes))
 
 
 @dataclass(frozen=True)
@@ -106,6 +110,27 @@ class GitResult:
     stdout: str
     stderr: str
     returncode: int
+
+
+@dataclass(frozen=True)
+class Package:
+    package_id: str
+    package_path: str
+    package_paths: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class ApprovalEvent:
+    event_id: str
+    path: str
+    package_id: str
+    package_paths: tuple[str, ...]
+    checkpoint_sha: str
+    approval_question: str
+    human_response: str
+    actor: str
+    package_displayed: bool
+    implementation_authorized: bool
 
 
 @dataclass(frozen=True)
@@ -136,104 +161,12 @@ def _safe_relative_path(value: Any) -> bool:
     return not path.is_absolute() and ".." not in path.parts and "\\" not in value
 
 
-def _safe_pattern(value: Any) -> bool:
-    if not _safe_relative_path(value):
-        return False
-    return not value.startswith("/")
-
-
-def _string_list(value: Any, *, patterns: bool = False) -> tuple[str, ...]:
+def _string_list(value: Any) -> tuple[str, ...]:
     if not isinstance(value, list) or len(value) != len(set(value)):
         raise GateError("MACHINE_STATE_INVALID")
-    checker = _safe_pattern if patterns else _safe_relative_path
-    if any(not checker(item) for item in value):
+    if any(not _safe_relative_path(item) for item in value):
         raise GateError("MACHINE_STATE_INVALID")
     return tuple(value)
-
-
-def _parse_state(raw: bytes) -> State:
-    try:
-        value = json.loads(raw.decode("utf-8"), object_pairs_hook=_reject_duplicate_keys)
-    except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
-        raise GateError("MACHINE_STATE_INVALID")
-    if not isinstance(value, dict):
-        raise GateError("MACHINE_STATE_INVALID")
-    required = {"schema_version", "lifecycle", "approval_state", "package", "approval_event", "scope"}
-    if set(value) != required or value["schema_version"] != SCHEMA_VERSION:
-        raise GateError("MACHINE_STATE_UNSUPPORTED")
-    lifecycle = value["lifecycle"]
-    approval_state = value["approval_state"]
-    if lifecycle not in {"discovery", "awaiting_approval", "implementation_allowed"}:
-        raise GateError("MACHINE_STATE_INVALID")
-    if approval_state not in {"none", "prepared", "approved"}:
-        raise GateError("MACHINE_STATE_INVALID")
-
-    package_value = value["package"]
-    package_id: str | None = None
-    package_paths: tuple[str, ...] = ()
-    if package_value is not None:
-        if not isinstance(package_value, dict) or set(package_value) != {"package_id", "package_paths"}:
-            raise GateError("MACHINE_STATE_INVALID")
-        package_id = package_value["package_id"]
-        if not isinstance(package_id, str) or not PACKAGE_ID_RE.fullmatch(package_id):
-            raise GateError("MACHINE_STATE_INVALID")
-        package_paths = _string_list(package_value["package_paths"])
-        expected_package = f"product-memory/approval-packages/{package_id}.md"
-        if REGISTRY_PATH not in package_paths or expected_package not in package_paths:
-            raise GateError("MACHINE_STATE_INVALID")
-
-    approval_value = value["approval_event"]
-    approval_event: dict[str, Any] | None = None
-    if approval_value is not None:
-        fields = {
-            "package_id",
-            "checkpoint_sha",
-            "package_displayed_in_previous_agent_turn",
-            "approval_question",
-            "human_response",
-            "actor",
-            "implementation_authorized",
-        }
-        if not isinstance(approval_value, dict) or set(approval_value) != fields:
-            raise GateError("MACHINE_STATE_INVALID")
-        if not isinstance(approval_value["package_id"], str) or not PACKAGE_ID_RE.fullmatch(approval_value["package_id"]):
-            raise GateError("MACHINE_STATE_INVALID")
-        if not isinstance(approval_value["checkpoint_sha"], str) or not CHECKPOINT_SHA_RE.fullmatch(approval_value["checkpoint_sha"]):
-            raise GateError("MACHINE_STATE_INVALID")
-        for field in ("approval_question", "human_response", "actor"):
-            if not isinstance(approval_value[field], str) or not approval_value[field].strip():
-                raise GateError("MACHINE_STATE_INVALID")
-        if approval_value["package_displayed_in_previous_agent_turn"] is not True or approval_value["implementation_authorized"] is not True:
-            raise GateError("MACHINE_STATE_INVALID")
-        approval_event = approval_value
-
-    scope = value["scope"]
-    if not isinstance(scope, dict) or set(scope) != {"product_code_paths", "product_evidence_paths"}:
-        raise GateError("MACHINE_STATE_INVALID")
-    product_code = _string_list(scope["product_code_paths"], patterns=True) or DEFAULT_PRODUCT_CODE_PATTERNS
-    product_evidence = _string_list(scope["product_evidence_paths"], patterns=True) or DEFAULT_PRODUCT_EVIDENCE_PATTERNS
-
-    if package_id is None:
-        if lifecycle != "discovery" or approval_state != "none" or approval_event is not None:
-            raise GateError("MACHINE_STATE_INVALID")
-    elif approval_event is None:
-        if lifecycle != "awaiting_approval" or approval_state != "prepared":
-            raise GateError("MACHINE_STATE_INVALID")
-    else:
-        if lifecycle != "implementation_allowed" or approval_state != "approved":
-            raise GateError("MACHINE_STATE_INVALID")
-        if approval_event["package_id"] != package_id:
-            raise GateError("MACHINE_STATE_INVALID")
-
-    return State(
-        lifecycle=lifecycle,
-        approval_state=approval_state,
-        package_id=package_id,
-        package_paths=package_paths,
-        approval_event=approval_event,
-        product_code_patterns=tuple(product_code),
-        product_evidence_patterns=tuple(product_evidence),
-    )
 
 
 def _run_git(repo: Path, *args: str) -> GitResult:
@@ -245,12 +178,26 @@ def _run_git(repo: Path, *args: str) -> GitResult:
             stderr=subprocess.PIPE,
             text=True,
             encoding="utf-8",
-            errors="replace",
+            errors="strict",
+            check=False,
+        )
+    except (OSError, UnicodeError) as exc:
+        raise GateError("GIT_CHECK_FAILED") from exc
+    return GitResult(completed.stdout, completed.stderr, completed.returncode)
+
+
+def _run_git_bytes(repo: Path, *args: str) -> tuple[bytes, bytes, int]:
+    try:
+        completed = subprocess.run(
+            ["git", *args],
+            cwd=repo,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             check=False,
         )
     except OSError as exc:
         raise GateError("GIT_CHECK_FAILED") from exc
-    return GitResult(completed.stdout, completed.stderr, completed.returncode)
+    return completed.stdout, completed.stderr, completed.returncode
 
 
 def _git_stdout(repo: Path, *args: str) -> str:
@@ -258,6 +205,16 @@ def _git_stdout(repo: Path, *args: str) -> str:
     if result.returncode != 0:
         raise GateError("GIT_CHECK_FAILED")
     return result.stdout
+
+
+def _git_paths(repo: Path, *args: str) -> tuple[str, ...]:
+    stdout, _, returncode = _run_git_bytes(repo, *args, "-z")
+    if returncode != 0:
+        raise GateError("GIT_CHECK_FAILED")
+    try:
+        return tuple(item.decode("utf-8") for item in stdout.split(b"\0") if item)
+    except UnicodeDecodeError as exc:
+        raise GateError("GIT_CHECK_FAILED") from exc
 
 
 def _resolve_repo(candidate: Path) -> Path:
@@ -276,7 +233,14 @@ def _read_regular(repo: Path, relative: str) -> bytes:
         raise GateError("REQUIRED_STATE_MISSING")
     try:
         return path.read_bytes()
-    except (OSError, UnicodeError) as exc:
+    except OSError as exc:
+        raise GateError("REQUIRED_STATE_UNREADABLE") from exc
+
+
+def _read_text(repo: Path, relative: str) -> str:
+    try:
+        return _read_regular(repo, relative).decode("utf-8")
+    except UnicodeDecodeError as exc:
         raise GateError("REQUIRED_STATE_UNREADABLE") from exc
 
 
@@ -290,291 +254,467 @@ def _head_has(repo: Path, relative: str) -> bool:
 
 
 def _head_bytes(repo: Path, relative: str) -> bytes:
-    result = _run_git(repo, "show", f"HEAD:{relative}")
-    if result.returncode != 0:
+    stdout, _, returncode = _run_git_bytes(repo, "show", f"HEAD:{relative}")
+    if returncode != 0:
         raise GateError("GIT_CHECK_FAILED")
-    return result.stdout.encode("utf-8")
+    return stdout
 
 
 def _commit_bytes(repo: Path, commit: str, relative: str) -> bytes:
-    result = _run_git(repo, "show", f"{commit}:{relative}")
-    if result.returncode != 0:
+    stdout, _, returncode = _run_git_bytes(repo, "show", f"{commit}:{relative}")
+    if returncode != 0:
         raise GateError("GIT_CHECK_FAILED")
-    return result.stdout.encode("utf-8")
+    return stdout
 
 
 def _commits(repo: Path, rev: str) -> list[str]:
-    return [line.strip() for line in _git_stdout(repo, "rev-list", "--reverse", rev).splitlines() if line.strip()]
+    return [line for line in _git_stdout(repo, "rev-list", "--reverse", rev).splitlines() if line]
 
 
 def _changed_paths(repo: Path, commit: str) -> tuple[str, ...]:
-    output = _git_stdout(repo, "diff-tree", "--root", "--no-commit-id", "--name-only", "-r", commit)
-    return tuple(sorted(path for path in output.splitlines() if path))
+    return tuple(sorted(_git_paths(repo, "diff-tree", "--root", "--no-commit-id", "--name-only", "-r", commit)))
+
+
+def _added_paths(repo: Path, commit: str) -> tuple[str, ...]:
+    return tuple(sorted(_git_paths(repo, "diff-tree", "--root", "--no-commit-id", "--name-only", "--diff-filter=A", "-r", commit)))
 
 
 def _commit_subject(repo: Path, commit: str) -> str:
     return _git_stdout(repo, "show", "-s", "--format=%s", commit).strip()
 
 
+def _is_ancestor(repo: Path, ancestor: str, descendant: str) -> bool:
+    result = _run_git(repo, "merge-base", "--is-ancestor", ancestor, descendant)
+    if result.returncode == 0:
+        return True
+    if result.returncode == 1:
+        return False
+    raise GateError("GIT_CHECK_FAILED")
+
+
 def _matches(path: str, patterns: Iterable[str]) -> bool:
     return any(fnmatch.fnmatchcase(path, pattern) for pattern in patterns)
 
 
-def _is_product_path(path: str, state: State) -> bool:
-    if path == STATE_PATH or path.startswith(".iskin/"):
+def _is_product_path(path: str) -> bool:
+    if path.startswith(".iskin/") or path.startswith(f"{EVENT_DIR}/"):
         return False
-    return _matches(path, state.product_code_patterns)
+    return _matches(path, DEFAULT_PRODUCT_CODE_PATTERNS)
 
 
-def _is_evidence_path(path: str, state: State) -> bool:
-    return _matches(path, state.product_evidence_patterns)
+def _is_evidence_path(path: str) -> bool:
+    return _matches(path, DEFAULT_PRODUCT_EVIDENCE_PATTERNS)
 
 
-def _product_or_evidence(paths: Iterable[str], state: State) -> tuple[str, ...]:
-    return tuple(sorted(path for path in paths if _is_product_path(path, state) or _is_evidence_path(path, state)))
+def _product_or_evidence(paths: Iterable[str]) -> tuple[str, ...]:
+    return tuple(sorted(path for path in paths if _is_product_path(path) or _is_evidence_path(path)))
 
 
-def _status_paths(repo: Path) -> tuple[str, ...]:
-    output = _git_stdout(repo, "status", "--porcelain=v1", "-z")
-    paths: list[str] = []
-    fields = output.split("\0")
-    for field in fields:
-        if not field:
-            continue
-        path = field[3:]
-        if " -> " in path:
-            path = path.split(" -> ", 1)[1]
-        paths.append(path)
-    return tuple(sorted(set(paths)))
+def _unstaged_paths(repo: Path) -> tuple[str, ...]:
+    tracked = _git_paths(repo, "diff", "--name-only")
+    untracked = _git_paths(repo, "ls-files", "--others", "--exclude-standard")
+    return tuple(sorted(set(tracked) | set(untracked)))
 
 
-def _package_files(repo: Path, state: State) -> tuple[str, ...]:
-    missing = [path for path in state.package_paths if not (repo / path).is_file() or (repo / path).is_symlink()]
-    if missing:
-        raise GateError("PACKAGE_STATE_MISSING")
-    registry = (repo / REGISTRY_PATH).read_text(encoding="utf-8")
-    expected_reference = f"product-memory/approval-packages/{state.package_id}.md"
-    if expected_reference not in registry:
-        raise GateError("PACKAGE_REGISTRY_MISMATCH")
-    package_path = repo / f"product-memory/approval-packages/{state.package_id}.md"
-    package_text = package_path.read_text(encoding="utf-8")
-    required_markers = (
-        f"package_id: {state.package_id}",
-        "### intent",
-        "### граница MVP",
-        "### outcomes",
-        "### обязательные gates",
-        "### существенные uncertainties",
+def _staged_paths(repo: Path) -> tuple[str, ...]:
+    return tuple(sorted(set(_git_paths(repo, "diff", "--cached", "--name-only", "--no-renames"))))
+
+
+def _staged_added_paths(repo: Path) -> tuple[str, ...]:
+    return tuple(sorted(set(_git_paths(repo, "diff", "--cached", "--name-only", "--no-renames", "--diff-filter=A"))))
+
+
+def _staged_deleted_paths(repo: Path) -> tuple[str, ...]:
+    return tuple(sorted(set(_git_paths(repo, "diff", "--cached", "--name-only", "--no-renames", "--diff-filter=D"))))
+
+
+def _package_paths(package_id: str) -> tuple[str, ...]:
+    return (
+        REGISTRY_PATH,
+        f"product-memory/approval-packages/{package_id}.md",
+        "product-memory/intent.md",
+        "product-memory/outcomes.md",
+        "product-memory/uncertainties.md",
     )
-    if any(marker not in package_text for marker in required_markers):
-        raise GateError("PACKAGE_INCOMPLETE")
-    return state.package_paths
 
 
-def _checkpoint_for_package(repo: Path, state: State) -> str | None:
-    package_file = f"product-memory/approval-packages/{state.package_id}.md"
-    if not _head_has(repo, package_file):
+def _load_packages(repo: Path) -> tuple[Package, ...]:
+    registry = _read_text(repo, REGISTRY_PATH)
+    package_ids = list(dict.fromkeys(PACKAGE_REFERENCE_RE.findall(registry)))
+    packages: list[Package] = []
+    for package_id in package_ids:
+        if not PACKAGE_ID_RE.fullmatch(package_id):
+            raise GateError("MACHINE_STATE_INVALID")
+        package_path = f"product-memory/approval-packages/{package_id}.md"
+        package_text = _read_text(repo, package_path)
+        required_markers = (
+            f"package_id: {package_id}",
+            "### intent",
+            "### граница MVP",
+            "### outcomes",
+            "### обязательные gates",
+            "### существенные uncertainties",
+        )
+        if any(marker not in package_text for marker in required_markers):
+            raise GateError("PACKAGE_INCOMPLETE")
+        packages.append(Package(package_id, package_path, _package_paths(package_id)))
+    return tuple(packages)
+
+
+def _checkpoint_for_package(repo: Path, package: Package) -> str | None:
+    if not _head_has(repo, package.package_path):
         return None
-    added = _git_stdout(repo, "log", "--reverse", "--format=%H", "--diff-filter=A", "--", package_file).splitlines()
+    added = _git_stdout(repo, "log", "--reverse", "--format=%H", "--diff-filter=A", "--", package.package_path).splitlines()
     if len(added) != 1:
         raise GateError("CHECKPOINT_NOT_UNIQUE")
     checkpoint = added[0].strip()
-    if not checkpoint or not _commit_subject(repo, checkpoint).startswith(f"{CHECKPOINT_PREFIX} {state.package_id}"):
+    if not checkpoint or not _commit_subject(repo, checkpoint).startswith(f"{CHECKPOINT_PREFIX} {package.package_id}"):
         raise GateError("CHECKPOINT_MARKER_MISSING")
-    current_head = _git_stdout(repo, "rev-parse", "HEAD").strip()
-    ancestry = _run_git(repo, "merge-base", "--is-ancestor", checkpoint, current_head)
-    if ancestry.returncode != 0:
+    head = _git_stdout(repo, "rev-parse", "HEAD").strip()
+    if not _is_ancestor(repo, checkpoint, head):
         raise GateError("CHECKPOINT_NOT_ANCESTOR")
     changed = set(_changed_paths(repo, checkpoint))
-    if not set(state.package_paths).issubset(changed):
+    if not set(package.package_paths).issubset(changed):
         raise GateError("CHECKPOINT_SCOPE_INCOMPLETE")
     return checkpoint
 
 
-def _package_drift(repo: Path, state: State, checkpoint: str) -> bool:
-    touched = set()
+def _package_drift(repo: Path, package_paths: Iterable[str], checkpoint: str) -> bool:
+    package_paths = tuple(package_paths)
     for commit in _commits(repo, "HEAD"):
-        if commit == checkpoint:
+        if commit == checkpoint or _is_ancestor(repo, commit, checkpoint):
             continue
-        if _run_git(repo, "merge-base", "--is-ancestor", commit, checkpoint).returncode == 0:
-            continue
-        if set(_changed_paths(repo, commit)) & set(state.package_paths):
-            touched.add(commit)
-    if touched:
-        return True
-    for path in state.package_paths:
-        if _commit_bytes(repo, checkpoint, path) != (repo / path).read_bytes():
+        if set(_changed_paths(repo, commit)) & set(package_paths):
+            return True
+    for path in package_paths:
+        if _commit_bytes(repo, checkpoint, path) != _read_regular(repo, path):
             return True
     return False
 
 
-def _first_approval_commit(repo: Path, state: State, checkpoint: str) -> str | None:
-    if state.approval_event is None:
-        return None
-    expected = json.dumps(
-        {
-            "package_id": state.package_id,
-            "checkpoint_sha": state.approval_event["checkpoint_sha"],
-        },
-        sort_keys=True,
-    )
-    for commit in _commits(repo, "HEAD"):
-        if commit == checkpoint:
-            continue
-        if _run_git(repo, "merge-base", "--is-ancestor", commit, checkpoint).returncode == 0:
-            continue
-        result = _run_git(repo, "show", f"{commit}:{STATE_PATH}")
-        if result.returncode != 0:
-            continue
-        try:
-            parsed = _parse_state(result.stdout.encode("utf-8"))
-        except GateError:
-            continue
-        if parsed.approval_event is None:
-            continue
-        candidate = json.dumps(
-            {"package_id": parsed.package_id, "checkpoint_sha": parsed.approval_event["checkpoint_sha"]},
-            sort_keys=True,
-        )
-        if candidate == expected:
-            return commit
-    return None
-
-
-def _preapproval_product_changes(repo: Path, state: State, checkpoint: str, approval_commit: str | None) -> tuple[str, ...]:
-    commits = _commits(repo, "HEAD")
+def _preapproval_product_changes(repo: Path, boundary: str) -> tuple[str, ...]:
     findings: set[str] = set()
-    for commit in commits:
-        if commit == checkpoint:
-            if _product_or_evidence(_changed_paths(repo, commit), state):
-                findings.update(_product_or_evidence(_changed_paths(repo, commit), state))
-            continue
-        if _run_git(repo, "merge-base", "--is-ancestor", commit, checkpoint).returncode == 0:
-            findings.update(_product_or_evidence(_changed_paths(repo, commit), state))
-            continue
-        if approval_commit is not None:
-            if commit == approval_commit:
-                findings.update(_product_or_evidence(_changed_paths(repo, commit), state))
-                break
-            if _run_git(repo, "merge-base", "--is-ancestor", commit, approval_commit).returncode == 0:
-                findings.update(_product_or_evidence(_changed_paths(repo, commit), state))
-        else:
-            findings.update(_product_or_evidence(_changed_paths(repo, commit), state))
+    for commit in _commits(repo, boundary):
+        findings.update(_product_or_evidence(_changed_paths(repo, commit)))
     return tuple(sorted(findings))
 
 
-def _build_evaluation(repo: Path, state: State) -> Evaluation:
-    package_id = state.package_id
-    if package_id is None:
-        dirty = _status_paths(repo)
-        if any(_is_product_path(path, state) or _is_evidence_path(path, state) for path in dirty):
-            return _blocked(state, "PRODUCT_OR_EVIDENCE_WITHOUT_PACKAGE")
-        return Evaluation(
-            STATUS_DISCOVERY,
-            ("NO_APPROVAL_PACKAGE",),
-            None,
-            None,
-            state.approval_state,
-            state.lifecycle,
-            ("discover", "prepare_approval", "read_only_recovery"),
-            "not_applicable_without_approval_event",
-        )
-
-    _package_files(repo, state)
-    checkpoint = _checkpoint_for_package(repo, state)
-    dirty = set(_status_paths(repo))
-    package_dirty = bool(dirty & set(state.package_paths))
-    product_dirty = tuple(sorted(path for path in dirty if _is_product_path(path, state) or _is_evidence_path(path, state)))
-
-    if checkpoint is None:
-        if product_dirty:
-            return _blocked(state, "PRODUCT_OR_EVIDENCE_BEFORE_CHECKPOINT")
-        if state.approval_event is not None:
-            return _blocked(state, "APPROVAL_CHECKPOINT_MISSING")
-        return Evaluation(
-            STATUS_AWAITING,
-            ("PACKAGE_CHECKPOINT_MISSING",),
-            package_id,
-            None,
-            state.approval_state,
-            state.lifecycle,
-            ("pre_approval_checkpoint", "read_only_recovery"),
-            "not_applicable_without_approval_event",
-        )
-
-    if _package_drift(repo, state, checkpoint) or package_dirty:
-        return _blocked(state, "PACKAGE_CHANGED_AFTER_CHECKPOINT")
-    changed_at_checkpoint = _product_or_evidence(_changed_paths(repo, checkpoint), state)
-    if changed_at_checkpoint:
-        return _blocked(state, "CHECKPOINT_CONTAINS_PRODUCT_OR_EVIDENCE")
-
-    if state.approval_event is None:
-        if product_dirty:
-            return _blocked(state, "PRODUCT_OR_EVIDENCE_BEFORE_APPROVAL")
-        findings = _preapproval_product_changes(repo, state, checkpoint, None)
-        if findings:
-            return _blocked(state, "PRODUCT_OR_EVIDENCE_BEFORE_APPROVAL")
-        return Evaluation(
-            STATUS_AWAITING,
-            ("PRE_APPROVAL_CHECKPOINT_PRESENT", "APPROVAL_EVENT_ABSENT"),
-            package_id,
-            checkpoint,
-            state.approval_state,
-            state.lifecycle,
-            ("human_approval", "read_only_recovery"),
-            "approval_display_is_conversational_evidence_not_cryptographic_proof",
-        )
-
-    if state.approval_event["checkpoint_sha"] != checkpoint:
-        return _blocked(state, "APPROVAL_CHECKPOINT_MISMATCH")
-    approval_commit = _first_approval_commit(repo, state, checkpoint)
-    if approval_commit is None:
-        return _blocked(state, "APPROVAL_EVENT_NOT_DURABLE")
-    findings = _preapproval_product_changes(repo, state, checkpoint, approval_commit)
-    if findings or product_dirty and state.approval_event is None:
-        return _blocked(state, "PRODUCT_OR_EVIDENCE_BEFORE_APPROVAL")
-    state_head = _head_bytes(repo, STATE_PATH)
-    if state_head != _read_regular(repo, STATE_PATH):
-        return _blocked(state, "APPROVAL_STATE_NOT_DURABLE")
-    return Evaluation(
-        STATUS_IMPLEMENTATION,
-        ("APPROVAL_EVENT_VALID", "PACKAGE_MATCHES_CHECKPOINT", "PREAPPROVAL_SCOPE_CLEAN"),
+def _parse_event(path: str, raw: bytes) -> ApprovalEvent:
+    expected_fields = {
+        "schema_version",
+        "event_type",
+        "event_id",
+        "package_id",
+        "package_paths",
+        "checkpoint_sha",
+        "package_displayed_in_previous_agent_turn",
+        "approval_question",
+        "human_response",
+        "actor",
+        "implementation_authorized",
+        "human_decision_path",
+    }
+    try:
+        value = json.loads(raw.decode("utf-8"), object_pairs_hook=_reject_duplicate_keys)
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        raise GateError("MACHINE_STATE_INVALID") from exc
+    if not isinstance(value, dict) or set(value) != expected_fields:
+        raise GateError("MACHINE_STATE_INVALID")
+    event_id = value["event_id"]
+    package_id = value["package_id"]
+    if not isinstance(event_id, str) or not EVENT_ID_RE.fullmatch(event_id) or path != f"{EVENT_DIR}/{event_id}.json":
+        raise GateError("MACHINE_STATE_INVALID")
+    if not isinstance(package_id, str) or not PACKAGE_ID_RE.fullmatch(package_id):
+        raise GateError("MACHINE_STATE_INVALID")
+    if value["schema_version"] != EVENT_SCHEMA_VERSION or value["event_type"] != "approval":
+        raise GateError("UNSUPPORTED_PROJECT_STATE")
+    if not isinstance(value["checkpoint_sha"], str) or not CHECKPOINT_SHA_RE.fullmatch(value["checkpoint_sha"]):
+        raise GateError("MACHINE_STATE_INVALID")
+    package_paths = _string_list(value["package_paths"])
+    if not set(_package_paths(package_id)).issubset(package_paths):
+        raise GateError("MACHINE_STATE_INVALID")
+    if value["human_decision_path"] != DECISIONS_PATH:
+        raise GateError("MACHINE_STATE_INVALID")
+    for field in ("approval_question", "human_response", "actor"):
+        if not isinstance(value[field], str) or not value[field].strip():
+            raise GateError("MACHINE_STATE_INVALID")
+    if value["package_displayed_in_previous_agent_turn"] is not True or value["implementation_authorized"] is not True:
+        raise GateError("MACHINE_STATE_INVALID")
+    return ApprovalEvent(
+        event_id,
+        path,
         package_id,
-        checkpoint,
-        state.approval_state,
-        state.lifecycle,
-        ("change_product", "prove_result", "checkpoint", "read_only_recovery"),
-        "approval_display_is_conversational_evidence_not_cryptographic_proof",
+        package_paths,
+        value["checkpoint_sha"],
+        value["approval_question"],
+        value["human_response"],
+        value["actor"],
+        value["package_displayed_in_previous_agent_turn"],
+        value["implementation_authorized"],
     )
 
 
-def _blocked(state: State | None, *reasons: str) -> Evaluation:
+def _load_events(repo: Path) -> tuple[tuple[ApprovalEvent, bytes], ...]:
+    directory = repo / EVENT_DIR
+    if not directory.exists():
+        return ()
+    if directory.is_symlink() or not directory.is_dir():
+        raise GateError("MACHINE_STATE_INVALID")
+    result: list[tuple[ApprovalEvent, bytes]] = []
+    for path in sorted(directory.iterdir()):
+        relative = path.relative_to(repo).as_posix()
+        if path.is_symlink() or not path.is_file() or path.suffix != ".json":
+            raise GateError("MACHINE_STATE_INVALID")
+        raw = path.read_bytes()
+        result.append((_parse_event(relative, raw), raw))
+    return tuple(result)
+
+
+def _event_add_commit(repo: Path, event: ApprovalEvent) -> str | None:
+    commits = _git_stdout(repo, "log", "--reverse", "--format=%H", "--diff-filter=A", "--", event.path).splitlines()
+    if len(commits) > 1:
+        raise GateError("APPROVAL_EVENT_MUTATED")
+    return commits[0].strip() if commits else None
+
+
+def _decision_reference_values(repo: Path) -> tuple[dict[str, str], ...]:
+    text = _read_text(repo, DECISIONS_PATH)
+    ids = list(EVENT_REFERENCE_RE.finditer(text))
+    references: list[dict[str, str]] = []
+    for index, match in enumerate(ids):
+        start = match.start()
+        end = ids[index + 1].start() if index + 1 < len(ids) else len(text)
+        block = text[start:end]
+        values = {"event_id": match.group(1)}
+        for name, pattern in (
+            ("event_path", EVENT_PATH_REFERENCE_RE),
+            ("package_id", re.compile(r"^\s*package_id:\s*([^\s]+)\s*$", re.MULTILINE)),
+            ("checkpoint_sha", re.compile(r"^\s*checkpoint_sha:\s*([^\s]+)\s*$", re.MULTILINE)),
+        ):
+            found = pattern.search(block)
+            if found:
+                values[name] = found.group(1)
+        references.append(values)
+    return tuple(references)
+
+
+def _decision_reference_for(repo: Path, event: ApprovalEvent) -> bool:
+    references = _decision_reference_values(repo)
+    for reference in references:
+        if reference.get("event_id") != event.event_id:
+            continue
+        if reference.get("event_path") != event.path:
+            continue
+        if reference.get("package_id") != event.package_id:
+            continue
+        if reference.get("checkpoint_sha") != event.checkpoint_sha:
+            continue
+        return True
+    return False
+
+
+def _check_decision_alignment(repo: Path, events: Iterable[ApprovalEvent]) -> None:
+    references = _decision_reference_values(repo)
+    event_by_id = {event.event_id: event for event in events}
+    for reference in references:
+        event = event_by_id.get(reference.get("event_id", ""))
+        if event is None:
+            raise GateError("ORPHANED_HUMAN_DECISION")
+        if not _decision_reference_for(repo, event):
+            raise GateError("HUMAN_DECISION_REFERENCE_MISMATCH")
+    for event in event_by_id.values():
+        if not _decision_reference_for(repo, event):
+            raise GateError("HUMAN_DECISION_REFERENCE_MISSING")
+
+
+def _event_scope(repo: Path, event: ApprovalEvent, checkpoint: str) -> tuple[bool, tuple[str, ...]]:
+    # The read-only pre-commit check is equivalent to: git diff --cached --check.
+    reasons: list[str] = []
+    staged = set(_staged_paths(repo))
+    added = set(_staged_added_paths(repo))
+    deleted = set(_staged_deleted_paths(repo))
+    allowed = {event.path, DECISIONS_PATH}
+    if staged != allowed:
+        reasons.append("APPROVAL_SCOPE_EXTRANEOUS")
+    if event.path not in added or DECISIONS_PATH in deleted:
+        reasons.append("APPROVAL_EVENT_NOT_APPEND_ONLY")
+    unstaged = set(_unstaged_paths(repo))
+    if unstaged:
+        reasons.append("APPROVAL_SCOPE_UNSTAGED_CHANGES")
+    if _product_or_evidence(staged | unstaged):
+        reasons.append("APPROVAL_SCOPE_PRODUCT_OR_EVIDENCE")
+    check = _run_git(repo, "diff", "--cached", "--check")
+    if check.returncode != 0:
+        reasons.append("STAGED_DIFF_CHECK_FAILED")
+    if _package_drift(repo, event.package_paths, checkpoint):
+        reasons.append("PACKAGE_CHANGED_AFTER_CHECKPOINT")
+    if not _decision_reference_for(repo, event):
+        reasons.append("HUMAN_DECISION_REFERENCE_MISSING")
+    return not reasons, tuple(dict.fromkeys(reasons))
+
+
+def _approval_commit(repo: Path, event: ApprovalEvent, checkpoint: str) -> str | None:
+    commit = _event_add_commit(repo, event)
+    if commit is None:
+        return None
+    if not _is_ancestor(repo, checkpoint, commit) or commit == checkpoint:
+        raise GateError("APPROVAL_COMMIT_ORDER_INVALID")
+    changed = set(_changed_paths(repo, commit))
+    if changed != {event.path, DECISIONS_PATH} or event.path not in set(_added_paths(repo, commit)):
+        raise GateError("APPROVAL_COMMIT_SCOPE_INVALID")
+    if _commit_bytes(repo, commit, event.path) != _read_regular(repo, event.path):
+        raise GateError("APPROVAL_EVENT_NOT_DURABLE")
+    if _commit_bytes(repo, commit, DECISIONS_PATH) != _read_regular(repo, DECISIONS_PATH):
+        raise GateError("HUMAN_DECISION_NOT_DURABLE")
+    return commit
+
+
+def _ensure_supported_project(repo: Path) -> None:
+    gate = repo / GATE_PATH
+    if gate.is_symlink() or not gate.is_file():
+        raise GateError("UNSUPPORTED_PROJECT_STATE")
+    legacy_state = repo / LEGACY_STATE_PATH
+    if legacy_state.exists() or legacy_state.is_symlink():
+        raise GateError("UNSUPPORTED_PROJECT_STATE")
+
+
+def _blocked(
+    package: Package | None,
+    *reasons: str,
+    checkpoint: str | None = None,
+    approval_state: str = "unknown",
+) -> Evaluation:
     return Evaluation(
         STATUS_BLOCKED,
         tuple(dict.fromkeys(reasons)),
-        state.package_id if state else None,
+        package.package_id if package else None,
+        checkpoint,
+        approval_state,
         None,
-        state.approval_state if state else "unknown",
-        state.lifecycle if state else None,
         ("read_only_recovery",),
         "approval_display_is_conversational_evidence_not_cryptographic_proof",
     )
 
 
-def evaluate(candidate: Path) -> tuple[Evaluation, Path | None]:
+def _build_evaluation(repo: Path, action: str) -> Evaluation:
+    _ensure_supported_project(repo)
+    packages = _load_packages(repo)
+    events_with_bytes = _load_events(repo)
+    events = tuple(event for event, _ in events_with_bytes)
+    if events or (repo / DECISIONS_PATH).is_file():
+        _check_decision_alignment(repo, events)
+    if not packages:
+        if events:
+            return _blocked(None, "ORPHANED_APPROVAL_EVENT")
+        if _product_or_evidence(_unstaged_paths(repo) + _git_paths(repo, "diff", "--cached", "--name-only", "--no-renames")):
+            return _blocked(None, "PRODUCT_OR_EVIDENCE_WITHOUT_PACKAGE")
+        return Evaluation(
+            STATUS_DISCOVERY,
+            ("NO_APPROVAL_PACKAGE",),
+            None,
+            None,
+            "none",
+            "discovery",
+            ("discover", "prepare_approval", "read_only_recovery"),
+            "not_applicable_without_approval_event",
+        )
+
+    package = packages[-1]
+    checkpoint = _checkpoint_for_package(repo, package)
+    if checkpoint is None:
+        dirty = _unstaged_paths(repo) + _git_paths(repo, "diff", "--cached", "--name-only", "--no-renames")
+        if _product_or_evidence(dirty):
+            return _blocked(package, "PRODUCT_OR_EVIDENCE_BEFORE_CHECKPOINT", approval_state="prepared")
+        return Evaluation(
+            STATUS_AWAITING,
+            ("PACKAGE_CHECKPOINT_MISSING",),
+            package.package_id,
+            None,
+            "prepared",
+            "awaiting_approval",
+            ("pre_approval_checkpoint", "read_only_recovery"),
+            "not_applicable_without_approval_event",
+        )
+
+    if _package_drift(repo, package.package_paths, checkpoint):
+        return _blocked(package, "PACKAGE_CHANGED_AFTER_CHECKPOINT", checkpoint=checkpoint, approval_state="prepared")
+    checkpoint_product = _product_or_evidence(_changed_paths(repo, checkpoint))
+    if checkpoint_product:
+        return _blocked(package, "CHECKPOINT_CONTAINS_PRODUCT_OR_EVIDENCE", checkpoint=checkpoint, approval_state="prepared")
+    preapproval_product = _preapproval_product_changes(repo, checkpoint)
+    if preapproval_product:
+        return _blocked(package, "PRODUCT_OR_EVIDENCE_BEFORE_CHECKPOINT", checkpoint=checkpoint, approval_state="prepared")
+
+    candidates = [event for event in events if event.package_id == package.package_id]
+    if not candidates:
+        dirty = _unstaged_paths(repo) + _git_paths(repo, "diff", "--cached", "--name-only", "--no-renames")
+        if _product_or_evidence(dirty):
+            return _blocked(package, "PRODUCT_OR_EVIDENCE_BEFORE_APPROVAL", checkpoint=checkpoint, approval_state="prepared")
+        return Evaluation(
+            STATUS_AWAITING,
+            ("PRE_APPROVAL_CHECKPOINT_PRESENT", "APPROVAL_EVENT_ABSENT"),
+            package.package_id,
+            checkpoint,
+            "prepared",
+            "awaiting_approval",
+            ("human_approval", "read_only_recovery"),
+            "approval_display_is_conversational_evidence_not_cryptographic_proof",
+        )
+    if len(candidates) > 1:
+        return _blocked(package, "MULTIPLE_ACTIVE_APPROVAL_EVENTS", checkpoint=checkpoint, approval_state="prepared")
+
+    event = candidates[0]
+    if event.checkpoint_sha != checkpoint:
+        return _blocked(package, "APPROVAL_CHECKPOINT_MISMATCH", checkpoint=checkpoint, approval_state="prepared")
+    if _package_drift(repo, event.package_paths, checkpoint):
+        return _blocked(package, "PACKAGE_CHANGED_AFTER_CHECKPOINT", checkpoint=checkpoint, approval_state="prepared")
+
+    approval_commit = _approval_commit(repo, event, checkpoint)
+    if approval_commit is None:
+        valid_scope, scope_reasons = _event_scope(repo, event, checkpoint)
+        if not valid_scope:
+            if action == "approval_checkpoint":
+                return _blocked(package, *scope_reasons, checkpoint=checkpoint, approval_state="pending_checkpoint")
+            return Evaluation(
+                STATUS_AWAITING,
+                tuple(("APPROVAL_EVENT_PENDING_COMMIT", *scope_reasons)),
+                package.package_id,
+                checkpoint,
+                "pending_checkpoint",
+                "awaiting_approval",
+                ("read_only_recovery",),
+                "approval_display_is_conversational_evidence_not_cryptographic_proof",
+            )
+        return Evaluation(
+            STATUS_AWAITING,
+            ("APPROVAL_EVENT_PENDING_COMMIT", "APPROVAL_CHECKPOINT_SCOPE_VALID"),
+            package.package_id,
+            checkpoint,
+            "pending_checkpoint",
+            "awaiting_approval",
+            ("approval_checkpoint", "read_only_recovery"),
+            "approval_display_is_conversational_evidence_not_cryptographic_proof",
+        )
+
+    approval_product = _product_or_evidence(_changed_paths(repo, approval_commit))
+    if approval_product:
+        return _blocked(package, "APPROVAL_COMMIT_CONTAINS_PRODUCT_OR_EVIDENCE", checkpoint=checkpoint, approval_state="prepared")
+    return Evaluation(
+        STATUS_IMPLEMENTATION,
+        ("APPROVAL_EVENT_VALID", "PACKAGE_MATCHES_CHECKPOINT", "HUMAN_DECISION_REFERENCE_VALID", "PREAPPROVAL_SCOPE_CLEAN"),
+        package.package_id,
+        checkpoint,
+        "approved",
+        "implementation_allowed",
+        ("change_product", "prove_result", "checkpoint", "read_only_recovery"),
+        "approval_display_is_conversational_evidence_not_cryptographic_proof",
+    )
+
+
+def evaluate(candidate: Path, action: str) -> tuple[Evaluation, Path | None]:
     try:
         repo = _resolve_repo(candidate)
-        raw = _read_regular(repo, STATE_PATH)
-        state = _parse_state(raw)
-        result = _build_evaluation(repo, state)
-        expected_lifecycle = {
-            STATUS_DISCOVERY: "discovery",
-            STATUS_AWAITING: "awaiting_approval",
-            STATUS_IMPLEMENTATION: "implementation_allowed",
-        }.get(result.status)
-        if expected_lifecycle is not None and state.lifecycle != expected_lifecycle:
-            result = _blocked(state, "LIFECYCLE_STATE_MISMATCH")
-        return result, repo
+        return _build_evaluation(repo, action), repo
     except GateError as exc:
         return _blocked(None, *exc.reason_codes), None
     except (OSError, UnicodeError):
@@ -605,18 +745,16 @@ def main(argv: list[str] | None = None) -> int:
         "--action",
         choices=("status", *ACTIONS),
         default="status",
-        help="action to authorize; status only reports the evaluated state",
+        help="action to authorize; status and read_only_recovery only report",
     )
     args = parser.parse_args(argv)
-    result, repo = evaluate(Path(args.repo).expanduser())
+    result, repo = evaluate(Path(args.repo).expanduser(), args.action)
     payload = _payload(result, repo)
     print(json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
-    if args.action == "read_only_recovery" and not (set(result.reason_codes) & UNVERIFIABLE_REASONS):
+    if args.action in {"status", "read_only_recovery"}:
         return 0
     if result.status == STATUS_BLOCKED:
         return 20
-    if args.action == "status":
-        return 0
     return 0 if args.action in result.allowed_actions else 10
 
 

@@ -91,7 +91,7 @@ archive_sha256
 files
 ```
 
-`schema_version` равен целому числу `1`; `release_version` и `archive_sha256` соответствуют проверенному release. `files` — отсортированный полный список установленных файлов ИскИн, кроме самого installation manifest, включая `.iskin/version`; каждая запись содержит только `path` и строчный `sha256`. Пути относительны target и не содержат опасных компонентов. Дата, абсолютный путь компьютера и другие недетерминированные данные не записываются.
+`schema_version` равен целому числу `1`; `release_version` и `archive_sha256` соответствуют проверенному release. `files` — отсортированный полный список immutable installation core-файлов, кроме самого installation manifest, включая `.iskin/version`; каждая запись содержит только `path` и строчный `sha256`. Устанавливаемые `product-memory/` и `telemetry/` являются mutable project state и намеренно не входят в этот последующий integrity allowlist. Пути относительны target и не содержат опасных компонентов. Дата, абсолютный путь компьютера и другие недетерминированные данные не записываются.
 
 Exit codes:
 

@@ -27,7 +27,6 @@ EXPECTED_TEMPLATE_FILES = {
     "AGENTS.md",
     "README.md",
     ".iskin/policy_gate.py",
-    ".iskin/policy_state.json",
     "process/README.md",
     "process/operating-model.md",
     "process/autonomy-policy.md",
@@ -252,7 +251,7 @@ def check_json() -> Check:
     paths = [
         TEMPLATE / "process/fixtures/provenance-drift/template/manifest.json",
         TEMPLATE / "process/fixtures/provenance-drift/template/proof-record.json",
-        TEMPLATE / ".iskin/policy_state.json",
+
     ]
     errors: list[str] = []
     for path in paths:
@@ -283,7 +282,7 @@ def check_template_contract() -> Check:
     package = TEMPLATE / "product-memory" / "approval-packages.md"
     package_schema = TEMPLATE / "product-memory" / "approval-packages" / "README.md"
     policy_gate = TEMPLATE / ".iskin" / "policy_gate.py"
-    policy_state = TEMPLATE / ".iskin" / "policy_state.json"
+
     errors: list[str] = []
     try:
         agents_text = agents.read_text(encoding="utf-8")
@@ -291,7 +290,7 @@ def check_template_contract() -> Check:
         package_text = package.read_text(encoding="utf-8")
         package_schema_text = package_schema.read_text(encoding="utf-8")
         policy_gate_text = policy_gate.read_text(encoding="utf-8")
-        policy_state_text = policy_state.read_text(encoding="utf-8")
+
     except (OSError, UnicodeError) as exc:
         return _check("template_contract", False, f"cannot read contract: {exc}")
 
@@ -363,18 +362,15 @@ def check_template_contract() -> Check:
         "--action",
         "GIT_CHECK_FAILED",
         "MACHINE_STATE_UNSUPPORTED",
+        "UNSUPPORTED_PROJECT_STATE",
+        "approval_checkpoint",
+        "product-memory/approval-events",
+        "git diff --cached --check",
         "approval_display_is_conversational_evidence_not_cryptographic_proof",
     ):
         if marker not in policy_gate_text:
             errors.append(f"policy_gate missing={marker}")
-    for marker in (
-        '"schema_version": 1',
-        '"lifecycle": "discovery"',
-        '"approval_state": "none"',
-        '"approval_event": null',
-    ):
-        if marker not in policy_state_text:
-            errors.append(f"policy_state missing={marker}")
+
 
     for path in TEMPLATE.rglob("*.md"):
         for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):

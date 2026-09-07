@@ -108,10 +108,32 @@ class InstallIskinTests(unittest.TestCase):
         self.assertEqual(manifest["schema_version"], 1)
         self.assertEqual(manifest["release_version"], VERSION)
         self.assertEqual(manifest["archive_sha256"], self.expected_sha256())
-        expected_paths = sorted(list(payload) + [".iskin/version"])
+        expected_paths = sorted(
+            [relative for relative in payload if self.module.is_immutable_template_path(relative)]
+            + [".iskin/version"]
+        )
         self.assertEqual([item["path"] for item in manifest["files"]], expected_paths)
         for item in manifest["files"]:
             self.assertEqual(item["sha256"], hashlib.sha256((target / item["path"]).read_bytes()).hexdigest())
+
+    def test_mutable_project_state_is_not_immutable_integrity_failure(self) -> None:
+        target = self.root / "mutable-project"
+        result = self.run_cli(CANONICAL, target)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+        decisions = target / "product-memory" / "decisions.md"
+        decisions.write_text(decisions.read_text(encoding="utf-8") + "\nnormal project decision\n", encoding="utf-8")
+        event = target / "product-memory" / "approval-events" / "evt-1.json"
+        event.parent.mkdir()
+        event.write_text("{\"schema_version\": 1}\n", encoding="utf-8")
+
+        package = self.module.validate_release(self.archive, VERSION, self.expected_sha256())
+        self.module._validate_installation_manifest(target, package)
+        manifest = json.loads((target / ".iskin" / "installation-manifest.json").read_text(encoding="utf-8"))
+        manifest_paths = {item["path"] for item in manifest["files"]}
+        self.assertIn(".iskin/policy_gate.py", manifest_paths)
+        self.assertNotIn(".iskin/policy_state.json", manifest_paths)
+        self.assertNotIn("product-memory/decisions.md", manifest_paths)
 
     def test_install_to_nonexistent_target(self) -> None:
         target = self.root / "new-project"

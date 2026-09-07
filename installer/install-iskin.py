@@ -40,6 +40,7 @@ _FORBIDDEN_PATH_RE = re.compile(
     r"budget|p0-0[1-5]|(?:^|[-_.])g[1-5](?:$|[-_.])|swift|xcode|xctest|xcuitest|budgetapp|₽|руб",
     re.IGNORECASE,
 )
+MUTABLE_TEMPLATE_PREFIXES = ("product-memory/", "telemetry/")
 
 EventHook = Callable[[str], None]
 
@@ -569,9 +570,18 @@ def _write_version(
 
 def _expected_installation_files(package: ReleasePackage) -> dict[str, bytes]:
     return {
-        **package.template_files,
+        **{
+            relative: data
+            for relative, data in package.template_files.items()
+            if is_immutable_template_path(relative)
+        },
         ".iskin/version": (package.release_version + "\n").encode("utf-8"),
     }
+
+
+def is_immutable_template_path(relative: str) -> bool:
+    """Return whether a template file belongs to the installation core allowlist."""
+    return not relative.startswith(MUTABLE_TEMPLATE_PREFIXES)
 
 
 def _package_has_project_local_skills(package: ReleasePackage) -> bool:
@@ -724,7 +734,7 @@ def _validate_installation_manifest(base: Path, package: ReleasePackage) -> None
     if paths != sorted(paths):
         raise InstallationFailure("installation_manifest", "installation manifest files are not sorted")
 
-    expected_paths = set(package.template_files) | {".iskin/version"}
+    expected_paths = set(_expected_installation_files(package))
     if set(observed) != expected_paths:
         missing = sorted(expected_paths - set(observed))
         extra = sorted(set(observed) - expected_paths)

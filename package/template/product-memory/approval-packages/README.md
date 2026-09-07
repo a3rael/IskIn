@@ -18,3 +18,4 @@
 <!-- ### обязательные gates и evidence -->
 <!-- ### существенные uncertainties, риски, зависимости и ограничения -->
 <!-- Не включай в package_paths продуктовый код, product evidence, proof-record или evidence/runs. -->
+<!-- После human approval event хранится отдельно в product-memory/approval-events/<event_id>.json; checkpoint_sha не добавляй в package-файл. -->

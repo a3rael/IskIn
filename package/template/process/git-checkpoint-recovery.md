@@ -23,7 +23,7 @@ Recovery отдельно проверяет approval state по существ�
 - durable approval event: присутствует | отсутствует | противоречив;
 - `implementation_authorized`: `true` | не подтверждён.
 
-Approval нельзя выводить из transcript, заполненного intent, outcome status, выбранного варианта или существующего diff. Машинная проверка выполняется по `.iskin/policy_state.json`; human-readable запись в `product-memory/decisions.md` остаётся согласованным журналом. Должны быть проверены `package_ref`, фактически заданный `question`, фактический `human_response`, `actor` и `implementation_authorized: true`.
+Approval нельзя выводить из transcript, заполненного intent, outcome status, выбранного варианта или существующего diff. Машинная проверка выполняется по append-only `product-memory/approval-events/<event_id>.json`; human-readable запись в `product-memory/decisions.md` остаётся согласованным журналом ссылок. Должны быть проверены `package_id`, `checkpoint_sha`, event ID/path, фактически заданные `approval_question` и `human_response`, `actor` и `implementation_authorized: true`. Orphaned event, запись без event или несовпадение ID/SHA блокируют процесс.
 
 ## Pre-approval checkpoint
 
@@ -49,7 +49,7 @@ implementation_authorized: true
 
 Фраза «авторизую полный пакет» без подтверждённого показа не является approval. Generic «продолжай» и разрешение отдельного технического действия не являются lifecycle approval.
 
-Для проверки drift recovery получает `package_paths` из revision checkpoint и проверяет, что содержимое каждого package_path байтово совпадает с checkpoint. После изменения любого package_path прежний approval недействителен. Требуются новый package ID, новый checkpoint и новый human approval; история не переписывается.
+Для проверки drift recovery получает `package_paths` из machine event и проверяет, что содержимое каждого package_path байтово совпадает с checkpoint. После изменения любого package_path прежний approval недействителен. Требуются новый package ID, новый checkpoint и новый human approval; история event-файлов не переписывается.
 
 ## Clean tree
 
@@ -63,7 +63,9 @@ implementation_authorized: true
 
 Если dirty tree содержит продуктовые изменения без подтверждённого approval event, recovery классифицирует состояние как `process-blocked`. Hermes не продолжает реализацию, не создаёт product proof или checkpoint-коммит и не удаляет, не откатывает и не stage-ит изменения. Он сохраняет наблюдаемые факты и эскалирует границу полномочий человеку.
 
-Перед lifecycle/checkpoint commit вызывается `python3 .iskin/policy_gate.py --action checkpoint`; перед изменением продукта — `--action change_product`; перед canonical proof — `--action prove_result`. Exit `0` означает разрешение только запрошенного действия. Любой другой exit означает запрет.
+После ответа человека event и ссылки в `decisions.md` точно stage-ятся, затем вызывается `python3 .iskin/policy_gate.py --action approval_checkpoint`. Gate разрешает этот технический commit только при exact staged scope, отсутствии staged/unstaged посторонних изменений, package drift и product code/evidence; перед commit проходит `git diff --cached --check`. После approval checkpoint повторный `--action change_product` разрешает implementation без нового human gate. Перед обычным lifecycle/checkpoint commit вызывается `--action checkpoint`, перед canonical proof — `--action prove_result`. Exit `0` означает разрешение только запрошенного действия. Любой другой exit означает запрет.
+
+Если `.iskin/policy_gate.py` отсутствует или project использует неподдерживаемую schema, состояние классифицируется как `PROCESS_BLOCKED` с reason `UNSUPPORTED_PROJECT_STATE`. Это только read-only диагностика: без миграции, product checks, telemetry writes, retroactive package/checkpoint, implementation, proof или commit.
 
 ## Checkpoint commit
 

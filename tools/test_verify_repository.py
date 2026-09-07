@@ -122,10 +122,7 @@ class VerifyRepositoryTests(unittest.TestCase):
             (self.original_template / ".iskin" / "policy_gate.py").read_text(encoding="utf-8"),
             encoding="utf-8",
         )
-        (policy_dir / "policy_state.json").write_text(
-            (self.original_template / ".iskin" / "policy_state.json").read_text(encoding="utf-8"),
-            encoding="utf-8",
-        )
+        self.assertFalse((self.original_template / ".iskin" / "policy_state.json").exists())
 
         valid = verifier.check_template_contract()
 
