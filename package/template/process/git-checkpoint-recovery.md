@@ -37,7 +37,7 @@ Approval нельзя выводить из transcript, заполненного
 
 ## Pre-approval checkpoint
 
-Registry `product-memory/approval-packages.md` указывает на отдельный канонический файл `product-memory/approval-packages/<package_id>.md`. Каждый package-файл имеет уникальный `package_id`, полный набор обязательных разделов и `package_paths`. Пакет должен существовать в durable state, а не только в transcript или dirty tree.
+Registry `product-memory/approval-packages.md` указывает на отдельный канонический файл `product-memory/approval-packages/<package_id>.md` и его machine-readable companion `<package_id>.json`. Индекс содержит schema version, revision, immutable content paths с SHA-256, outcome IDs, gate IDs и superseded package. Каждый package-файл имеет уникальный `package_id` и полный набор обязательных разделов; mutable projections не входят в `package_paths`. Пакет должен существовать в durable state, а не только в transcript или dirty tree.
 
 Pre-approval checkpoint — отдельный локальный commit между подготовкой пакета и его показом человеку. До показа человеку он фиксирует immutable revision пакета. `checkpoint_sha` не записывается в этот пакет и не может быть известен внутри создаваемого commit; SHA появляется только в последующем approval event.
 
@@ -59,7 +59,9 @@ implementation_authorized: true
 
 Фраза «авторизую полный пакет» без подтверждённого показа не является approval. Generic «продолжай» и разрешение отдельного технического действия не являются lifecycle approval.
 
-Для проверки drift recovery получает `package_paths` из machine event и проверяет, что содержимое каждого package_path байтово совпадает с checkpoint. После изменения любого package_path прежний approval недействителен. Требуются новый package ID, новый checkpoint и новый human approval; история event-файлов не переписывается.
+Для проверки immutable drift recovery получает package paths из machine event и companion index и проверяет, что содержимое каждого package_path (immutable package path) байтово совпадает с checkpoint. Projections (`intent.md`, `outcomes.md`, `uncertainties.md`, `evidence.md`, telemetry) не являются package paths: их обычное lifecycle-обновление не требует новой approval revision. После изменения любого immutable package path прежний approval недействителен. Требуются новый package ID/revision, новый checkpoint и новый human approval; история event-файлов не переписывается.
+
+Lifecycle state хранится append-only событиями `product-memory/lifecycle-events/<event_id>.json`. Для каждого события проверяются schema version, package checkpoint, outcome membership, `from_status`/`to_status`, Git parent, projection markers и evidence/proof references. Обычный переход выполняется через `--action lifecycle_checkpoint`; старые events не редактируются и не удаляются. `proved` требует актуального canonical evidence/provenance, `accepted` — отдельной human decision reference.
 
 ## Clean tree
 
@@ -73,7 +75,7 @@ implementation_authorized: true
 
 Если dirty tree содержит продуктовые изменения без подтверждённого approval event, recovery классифицирует состояние как `process-blocked`. Hermes не продолжает реализацию, не создаёт product proof или checkpoint-коммит и не удаляет, не откатывает и не stage-ит изменения. Он сохраняет наблюдаемые факты и эскалирует границу полномочий человеку.
 
-После ответа человека event и ссылки в `decisions.md` точно stage-ятся, затем вызывается `python3 .iskin/policy_gate.py --action approval_checkpoint`. Gate разрешает этот технический commit только при exact staged scope, отсутствии staged/unstaged посторонних изменений, package drift и product code/evidence; перед commit проходит `git diff --cached --check`. После approval checkpoint повторный `--action change_product` разрешает implementation без нового human gate. Перед обычным lifecycle/checkpoint commit вызывается `--action checkpoint`, перед canonical proof — `--action prove_result`. Exit `0` означает разрешение только запрошенного действия. Любой другой exit означает запрет.
+После ответа человека event и ссылки в `decisions.md` точно stage-ятся, затем вызывается `python3 .iskin/policy_gate.py --action approval_checkpoint`. Gate разрешает этот технический commit только при exact staged scope, отсутствии staged/unstaged посторонних изменений, package drift и product code/evidence; перед commit проходит `git diff --cached --check`. После approval checkpoint повторный `--action change_product` разрешает implementation без нового human gate. Обычное изменение lifecycle status выполняется новым event через `--action lifecycle_checkpoint`; этот scope может содержать только event, projections, telemetry и относящиеся evidence/proof paths. Перед product checkpoint вызывается `--action checkpoint`, перед canonical proof — `--action prove_result`. Exit `0` означает разрешение только запрошенного действия. Любой другой exit означает запрет.
 
 Если `.iskin/policy_gate.py` отсутствует или project использует неподдерживаемую schema, состояние классифицируется как `PROCESS_BLOCKED` с reason `UNSUPPORTED_PROJECT_STATE`. Это только read-only диагностика: без миграции, product checks, telemetry writes, retroactive package/checkpoint, implementation, proof или commit.
 
@@ -88,7 +90,7 @@ Hermes может создать локальный checkpoint commit тольк
 - `git diff --cached --check` проходит;
 - результат внешнего действия не остаётся неизвестным.
 
-Commit фиксирует согласованные product files, outcome/lifecycle, evidence/provenance, telemetry, next action и authority boundaries. Количество коммитов не является метрикой успеха. Remote, push, tag, merge и publication требуют отдельного human decision.
+Локальный checkpoint commit фиксирует согласованный verified transition. Для lifecycle-only transition сначала создаётся новый append-only event, обновляются projections и выполняется `--action lifecycle_checkpoint`; immutable package не меняется. Product code допускается только отдельным product checkpoint после действующего approval и не может быть скрыт внутри lifecycle-only scope. Количество коммитов не является метрикой успеха. Remote, push, tag, merge и publication требуют отдельного human decision.
 
 ## Skill bundle compatibility
 

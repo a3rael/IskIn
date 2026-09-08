@@ -1,4 +1,4 @@
-# Архитектура ИскИн v0.3
+# Архитектура ИскИн v0.4
 
 ## Слои
 
@@ -9,7 +9,7 @@
 Источники истины ядра в установленном проекте:
 
 - `process/` — правила процесса и provenance;
-- `product-memory/` — состояние конкретного продукта;
+- `product-memory/` — состояние конкретного продукта: immutable approval specification отделена от append-only lifecycle events и projections;
 - `telemetry/` — факты выполнения и измерения.
 
 ### Hermes-интеграция
@@ -35,6 +35,10 @@
 Первый v0.4 эксперимент использует Git-based product sandbox: проверенный локальный commit является durable checkpoint законченного перехода, а новая сессия восстанавливает состояние из Git и project state, не из transcript. Полная спецификация двух сценариев и каноническая checkpoint model находятся в `v0.4-git-checkpoint-experiment.md`; утверждённое решение — `../decisions/2026-09-06-v0.4-git-checkpoint-experiment.md`.
 
 Global bundle v0.4 проектируется только в `runtime/skills/`; его граница зафиксирована в `../decisions/2026-09-06-v0.4-runtime-skill-boundary.md`. Bundle не установлен в Hermes. v0.3 project skills и установленный пакет остаются неизменным baseline.
+
+### Specification и lifecycle state
+
+Approval package — это immutable human-readable specification и machine-readable companion/index. Текущий outcome status, evidence и telemetry не входят в package paths. Они изменяются через versioned lifecycle events и проверяемые projections. Подробная архитектура: `v0.4-specification-lifecycle-state.md`; решение: `../decisions/2026-09-08-v0.4-specification-lifecycle-state.md`.
 
 ## Правило единственного источника
 

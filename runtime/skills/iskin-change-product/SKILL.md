@@ -20,8 +20,8 @@ Use only in an IskIn Git repository after recovery identifies one active outcome
 2. Read the active outcome, the canonical event `product-memory/approval-events/<event_id>.json`, its linked human-readable decision, and `process/autonomy-policy.md`, `process/action-selection.md`, `process/quality-gates.md`, and `process/evidence-provenance.md`.
 3. Make only the selected bounded change inside the approved package. Do not alter package paths, intent, quality gates, evidence scope, lifecycle policy, or authority boundaries without invalidating the approval and requiring a new pre-approval checkpoint and human gate.
 4. Run every applicable check for this transition. Treat an unknown external result or unresolved error as incomplete, not as success.
-5. Synchronize product memory and telemetry with the observed result, then set only the lifecycle state supported by the transition.
-6. Prepare the precise checkpoint scope. Apply the canonical checkpoint model in `docs/architecture/v0.4-git-checkpoint-experiment.md`: read back durable records, exclude unrelated changes, and create a local checkpoint commit only after all required conditions are true.
+5. Synchronize projections and telemetry with the observed result by appending one lifecycle event under `product-memory/lifecycle-events/`; never rewrite or delete an old event and never put mutable status into the immutable approval package.
+6. For a lifecycle-only transition, stage only the new event, matching projections/telemetry and related evidence/proof paths, then run `python3 .iskin/policy_gate.py --action lifecycle_checkpoint`. For implementation/product code use the separate product checkpoint scope; a lifecycle-only checkpoint must not contain arbitrary product code. Read back durable records and create a local checkpoint commit only after the action gate returns `0`.
 
 ## Authority boundary
 

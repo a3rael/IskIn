@@ -64,3 +64,9 @@ Checkpoint сравнивает текущие SHA-256 со scope из manifest.
 ## Human intervention
 
 Решение человека, меняющее status, scope, действие, правило или исключение, записывается как structured `intervention_event` с actor, временем, причиной, target, предыдущим и новым состоянием, consequence и ссылкой на решение.
+
+## Lifecycle event contract
+
+Каноническое состояние outcome хранится append-only событиями `product-memory/lifecycle-events/<event_id>.json`, а не изменением approval package. Событие содержит `schema_version`, outcome/package/checkpoint, `from_status`, `to_status`, actor, reason, evidence/proof references, `occurred_at_utc` и `git_parent_sha`. Допустимые переходы проверяются одной state machine gate; старые события не изменяются и не удаляются.
+
+`proved` допускается только при существующих актуальных evidence и valid provenance/proof record. `accepted` требует отдельной human decision reference. `outcomes.md` и `evidence.md` остаются human-readable projections и должны содержать markers последнего lifecycle event; их обновление не изменяет immutable specification и не требует новой approval revision.

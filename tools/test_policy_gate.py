@@ -17,14 +17,12 @@ PACKAGE_ID = "AP-20260907-policy-gate"
 EVENT_ID = "AE-20260907-policy-gate"
 REGISTRY = "product-memory/approval-packages.md"
 PACKAGE_PATH = f"product-memory/approval-packages/{PACKAGE_ID}.md"
+PACKAGE_INDEX_PATH = f"product-memory/approval-packages/{PACKAGE_ID}.json"
 EVENT_PATH = f"product-memory/approval-events/{EVENT_ID}.json"
 DECISIONS = "product-memory/decisions.md"
 PACKAGE_PATHS = (
-    REGISTRY,
     PACKAGE_PATH,
-    "product-memory/intent.md",
-    "product-memory/outcomes.md",
-    "product-memory/uncertainties.md",
+    PACKAGE_INDEX_PATH,
 )
 
 
@@ -111,6 +109,22 @@ class PolicyGateExecutableTests(unittest.TestCase):
                 ]
             ),
         )
+        self._write(
+            PACKAGE_INDEX_PATH,
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "package_id": PACKAGE_ID,
+                    "revision": "1",
+                    "immutable_content": [{"path": PACKAGE_PATH, "sha256": hashlib.sha256((self.repo / PACKAGE_PATH).read_bytes()).hexdigest()}],
+                    "outcome_ids": ["OUT-policy-gate"],
+                    "gate_ids": ["GATE-policy-gate"],
+                    "superseded_package": None,
+                },
+                indent=2,
+            )
+            + "\n",
+        )
         self._write("product-memory/intent.md", "# Intent\nPrepared\n")
         self._write("product-memory/outcomes.md", "# Outcomes\nPrepared\n")
         self._write("product-memory/uncertainties.md", "# Uncertainties\nPrepared\n")
@@ -121,7 +135,7 @@ class PolicyGateExecutableTests(unittest.TestCase):
 
     def _event(self, *, checkpoint: str | None = None, event_id: str = EVENT_ID) -> dict[str, object]:
         return {
-            "schema_version": 1,
+            "schema_version": 2,
             "event_type": "approval",
             "event_id": event_id,
             "package_id": PACKAGE_ID,

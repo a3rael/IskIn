@@ -13,7 +13,7 @@
 В ядро входят:
 
 - состояния намерения, работы, доказательств и управления;
-- lifecycle результата: `proposed → active → evidence-pending → proved → accepted`, а также `blocked` и `reopened`;
+- lifecycle результата: `proposed → approved → in-progress → evidence-pending → proved → accepted`, а также `blocked` и `reopened`; утверждённая product specification отделена от append-only lifecycle state;
 - отдельные `outcome status` и `cycle closure`;
 - выбор следующего действия по фактическому состоянию;
 - ограниченная автономность и human gates;

@@ -46,6 +46,7 @@ EXPECTED_TEMPLATE_FILES = {
     "product-memory/uncertainties.md",
     "product-memory/approval-packages.md",
     "product-memory/approval-packages/README.md",
+    "product-memory/lifecycle-events/README.md",
     "product-memory/decisions.md",
     "product-memory/evidence.md",
     "telemetry/README.md",
@@ -371,6 +372,10 @@ def check_template_contract() -> Check:
     required_package = (
         "package_id",
         "package_paths",
+        "immutable_content",
+        "outcome_ids",
+        "gate_ids",
+        "superseded_package",
         "intent и ценность",
         "граница MVP",
         "outcomes и наблюдаемое поведение",
@@ -393,6 +398,10 @@ def check_template_contract() -> Check:
         "product-memory/approval-events",
         "git diff --cached --check",
         "approval_display_is_conversational_evidence_not_cryptographic_proof",
+        "LIFECYCLE_EVENT_SCHEMA_VERSION",
+        "lifecycle_checkpoint",
+        "LIFECYCLE_TRANSITIONS",
+        "product-memory/lifecycle-events",
     ):
         if marker not in policy_gate_text:
             errors.append(f"policy_gate missing={marker}")

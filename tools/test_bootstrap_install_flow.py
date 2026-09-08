@@ -136,6 +136,25 @@ class BootstrapInstallFlowTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
+            package_index = target / "product-memory" / "approval-packages" / f"{package_id}.json"
+            package_index.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "package_id": package_id,
+                        "revision": "1",
+                        "immutable_content": [
+                            {"path": f"product-memory/approval-packages/{package_id}.md", "sha256": hashlib.sha256(package_path.read_bytes()).hexdigest()}
+                        ],
+                        "outcome_ids": ["OUT-bootstrap-history-boundary"],
+                        "gate_ids": ["GATE-bootstrap-history-boundary"],
+                        "superseded_package": None,
+                    },
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
             for name in ("intent.md", "outcomes.md", "uncertainties.md"):
                 (target / "product-memory" / name).write_text(f"# {name}\nPrepared\n", encoding="utf-8")
             package_commit = self.run_command(
@@ -144,6 +163,7 @@ class BootstrapInstallFlowTests(unittest.TestCase):
                 "--",
                 "product-memory/approval-packages.md",
                 f"product-memory/approval-packages/{package_id}.md",
+                f"product-memory/approval-packages/{package_id}.json",
                 "product-memory/intent.md",
                 "product-memory/outcomes.md",
                 "product-memory/uncertainties.md",

@@ -23,7 +23,8 @@ Use only after a recovery snapshot confirms an IskIn repository with `process/`,
 5. If a complete approval package in its immutable package file, a pre-approval checkpoint commit made before display, or a durable append-only approval event under `product-memory` with a matching `decisions.md` reference and `implementation_authorized: true` is absent, select only discovery, package preparation, or waiting for the human decision. Do not select implementation or product proof because of a clarification answer, selected option, agreement with one package element, lack of objection, a generic «продолжай», or a technical authority grant.
 6. Reject approval when the package was not shown in the previous agent turn, when the event references another package ID/checkpoint SHA, or when any package path drifted after the checkpoint.
 7. Select exactly one smallest reversible and observable action. State its expected evidence, stopping condition, and whether it may write files.
-8. Record the choice only when the current authority and process policy permit that write; otherwise return the choice and required human decision without writing.
+8. For a normal status transition, choose an append-only lifecycle event and `lifecycle_checkpoint`, not a new approval package revision. Select a new package/checkpoint/human gate only when immutable intent, boundary, outcome definition or mandatory gates change. `proved` requires canonical evidence/provenance and `accepted` requires a human decision reference.
+9. Record the choice only when the current authority and process policy permit that write; otherwise return the choice and required human decision without writing.
 
 ## Authority boundary
 

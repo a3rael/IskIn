@@ -1,6 +1,7 @@
 # Approval packages
 
-<!-- Это registry полных approval package конкретного продукта; он не входит в package_paths конкретного пакета. -->
-<!-- Для каждого package_id добавляй ссылку на отдельный immutable-файл: product-memory/approval-packages/<package_id>.md. -->
-<!-- Добавление нового package-файла не изменяет содержимое уже утверждённого package-файла. -->
+<!-- Это registry полных approval package конкретного продукта. -->
+<!-- Для каждого package_id добавляй ссылку на immutable Markdown specification и companion index JSON. -->
+<!-- Формат ссылок: product-memory/approval-packages/<package_id>.md; index имеет тот же basename и суффикс .json. -->
+<!-- Добавление новой package revision не изменяет содержимое уже утверждённых package-файлов. -->
 <!-- В исходном template registry пуст и не является human approval. -->

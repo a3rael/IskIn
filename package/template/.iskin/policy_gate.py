@@ -23,8 +23,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
-EVENT_SCHEMA_VERSION = 1
+APPROVAL_EVENT_SCHEMA_VERSION = 2
+LIFECYCLE_EVENT_SCHEMA_VERSION = 1
+PACKAGE_INDEX_SCHEMA_VERSION = 1
 EVENT_DIR = "product-memory/approval-events"
+LIFECYCLE_EVENT_DIR = "product-memory/lifecycle-events"
 DECISIONS_PATH = "product-memory/decisions.md"
 REGISTRY_PATH = "product-memory/approval-packages.md"
 GATE_PATH = ".iskin/policy_gate.py"
@@ -62,6 +65,7 @@ ACTIONS = (
     "read_only_recovery",
     "product_tests",
     "telemetry_write",
+    "lifecycle_checkpoint",
 )
 CRITICAL_ACTIONS = (
     "bootstrap_checkpoint",
@@ -71,6 +75,7 @@ CRITICAL_ACTIONS = (
     "checkpoint",
     "product_tests",
     "telemetry_write",
+    "lifecycle_checkpoint",
 )
 UNVERIFIABLE_REASONS = {
     "GIT_CONTEXT_UNAVAILABLE",
@@ -106,6 +111,36 @@ DEFAULT_PRODUCT_EVIDENCE_PATTERNS = (
     "proof-record.json",
     "**/proof-record.json",
 )
+LIFECYCLE_STATUSES = (
+    "proposed",
+    "approved",
+    "in-progress",
+    "evidence-pending",
+    "proved",
+    "accepted",
+    "blocked",
+    "reopened",
+)
+LIFECYCLE_TRANSITIONS = {
+    "proposed": frozenset({"approved"}),
+    "approved": frozenset({"in-progress"}),
+    "in-progress": frozenset({"evidence-pending", "blocked"}),
+    "evidence-pending": frozenset({"proved", "blocked"}),
+    "proved": frozenset({"accepted", "reopened"}),
+    "accepted": frozenset({"reopened"}),
+    "blocked": frozenset({"in-progress", "evidence-pending"}),
+    "reopened": frozenset({"in-progress", "evidence-pending"}),
+}
+LIFECYCLE_PROJECTION_PATHS = frozenset(
+    {
+        "product-memory/intent.md",
+        "product-memory/outcomes.md",
+        "product-memory/uncertainties.md",
+        "product-memory/evidence.md",
+        "telemetry/run-log.md",
+    }
+)
+UTC_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$")
 
 
 class GateError(Exception):
@@ -127,7 +162,12 @@ class GitResult:
 class Package:
     package_id: str
     package_path: str
+    index_path: str
     package_paths: tuple[str, ...]
+    checkpoint_paths: tuple[str, ...]
+    outcome_ids: tuple[str, ...]
+    gate_ids: tuple[str, ...]
+    superseded_package: str | None
 
 
 @dataclass(frozen=True)
@@ -149,6 +189,24 @@ class ApprovalEvent:
     actor: str
     package_displayed: bool
     implementation_authorized: bool
+
+
+@dataclass(frozen=True)
+class LifecycleEvent:
+    event_id: str
+    path: str
+    outcome_id: str
+    package_id: str
+    package_checkpoint_sha: str
+    from_status: str
+    to_status: str
+    actor: str
+    reason: str
+    evidence_refs: tuple[str, ...]
+    proof_refs: tuple[str, ...]
+    human_decision_ref: str | None
+    occurred_at_utc: str
+    git_parent_sha: str
 
 
 @dataclass(frozen=True)
@@ -541,12 +599,72 @@ def _staged_deleted_paths(repo: Path) -> tuple[str, ...]:
 
 def _package_paths(package_id: str) -> tuple[str, ...]:
     return (
-        REGISTRY_PATH,
         f"product-memory/approval-packages/{package_id}.md",
-        "product-memory/intent.md",
-        "product-memory/outcomes.md",
-        "product-memory/uncertainties.md",
+        f"product-memory/approval-packages/{package_id}.json",
     )
+
+
+def _load_package_index(repo: Path, package_id: str, package_path: str) -> Package:
+    index_path = f"product-memory/approval-packages/{package_id}.json"
+    try:
+        value = json.loads(
+            _read_regular(repo, index_path).decode("utf-8"),
+            object_pairs_hook=_reject_duplicate_keys,
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        raise GateError("PACKAGE_INDEX_INVALID") from exc
+    required = {
+        "schema_version",
+        "package_id",
+        "revision",
+        "immutable_content",
+        "outcome_ids",
+        "gate_ids",
+        "superseded_package",
+    }
+    if not isinstance(value, dict) or set(value) != required:
+        raise GateError("PACKAGE_INDEX_INVALID")
+    if value["schema_version"] != PACKAGE_INDEX_SCHEMA_VERSION or value["package_id"] != package_id:
+        raise GateError("UNSUPPORTED_PROJECT_STATE" if value.get("schema_version") != PACKAGE_INDEX_SCHEMA_VERSION else "PACKAGE_INDEX_INVALID")
+    if not isinstance(value["revision"], str) or not value["revision"]:
+        raise GateError("PACKAGE_INDEX_INVALID")
+    content: list[tuple[str, str]] = []
+    raw_content = value["immutable_content"]
+    if not isinstance(raw_content, list) or not raw_content:
+        raise GateError("PACKAGE_INDEX_INVALID")
+    for item in raw_content:
+        if not isinstance(item, dict) or set(item) != {"path", "sha256"}:
+            raise GateError("PACKAGE_INDEX_INVALID")
+        path, digest = item["path"], item["sha256"]
+        if not _safe_relative_path(path) or not isinstance(digest, str) or not SHA256_RE.fullmatch(digest):
+            raise GateError("PACKAGE_INDEX_INVALID")
+        content.append((path, digest))
+    if [path for path, _ in content] != sorted(path for path, _ in content) or len({path for path, _ in content}) != len(content):
+        raise GateError("PACKAGE_INDEX_INVALID")
+    if package_path not in {path for path, _ in content}:
+        raise GateError("PACKAGE_INDEX_INVALID")
+    for path, expected in content:
+        if _sha256_bytes(_read_regular(repo, path)) != expected:
+            raise GateError("PACKAGE_CONTENT_HASH_MISMATCH", "PACKAGE_CHANGED_AFTER_CHECKPOINT")
+    outcome_ids = value["outcome_ids"]
+    gate_ids = value["gate_ids"]
+    if (
+        not isinstance(outcome_ids, list)
+        or not outcome_ids
+        or any(not isinstance(item, str) or not EVENT_ID_RE.fullmatch(item) for item in outcome_ids)
+        or len(outcome_ids) != len(set(outcome_ids))
+        or not isinstance(gate_ids, list)
+        or not gate_ids
+        or any(not isinstance(item, str) or not EVENT_ID_RE.fullmatch(item) for item in gate_ids)
+        or len(gate_ids) != len(set(gate_ids))
+    ):
+        raise GateError("PACKAGE_INDEX_INVALID")
+    superseded = value["superseded_package"]
+    if superseded is not None and (not isinstance(superseded, str) or not PACKAGE_ID_RE.fullmatch(superseded) or superseded == package_id):
+        raise GateError("PACKAGE_INDEX_INVALID")
+    package_paths = tuple(sorted(set(path for path, _ in content) | {index_path}))
+    checkpoint_paths = tuple(sorted(set(package_paths) | {REGISTRY_PATH}))
+    return Package(package_id, package_path, index_path, package_paths, checkpoint_paths, tuple(outcome_ids), tuple(gate_ids), superseded)
 
 
 def _load_packages(repo: Path) -> tuple[Package, ...]:
@@ -568,14 +686,14 @@ def _load_packages(repo: Path) -> tuple[Package, ...]:
         )
         if any(marker not in package_text for marker in required_markers):
             raise GateError("PACKAGE_INCOMPLETE")
-        packages.append(Package(package_id, package_path, _package_paths(package_id)))
+        packages.append(_load_package_index(repo, package_id, package_path))
     return tuple(packages)
 
 
 def _checkpoint_for_package(repo: Path, package: Package) -> str | None:
-    if not _head_has(repo, package.package_path):
+    if not _head_has(repo, package.index_path):
         return None
-    added = _git_stdout(repo, "log", "--reverse", "--format=%H", "--diff-filter=A", "--", package.package_path).splitlines()
+    added = _git_stdout(repo, "log", "--reverse", "--format=%H", "--diff-filter=A", "--", package.index_path).splitlines()
     if len(added) != 1:
         raise GateError("CHECKPOINT_NOT_UNIQUE")
     checkpoint = added[0].strip()
@@ -585,7 +703,7 @@ def _checkpoint_for_package(repo: Path, package: Package) -> str | None:
     if not _is_ancestor(repo, checkpoint, head):
         raise GateError("CHECKPOINT_NOT_ANCESTOR")
     changed = set(_changed_paths(repo, checkpoint))
-    if not set(package.package_paths).issubset(changed):
+    if not set(package.checkpoint_paths).issubset(changed):
         raise GateError("CHECKPOINT_SCOPE_INCOMPLETE")
     return checkpoint
 
@@ -697,12 +815,12 @@ def _parse_event(path: str, raw: bytes) -> ApprovalEvent:
         raise GateError("MACHINE_STATE_INVALID")
     if not isinstance(package_id, str) or not PACKAGE_ID_RE.fullmatch(package_id):
         raise GateError("MACHINE_STATE_INVALID")
-    if value["schema_version"] != EVENT_SCHEMA_VERSION or value["event_type"] != "approval":
+    if value["schema_version"] != APPROVAL_EVENT_SCHEMA_VERSION or value["event_type"] != "approval":
         raise GateError("UNSUPPORTED_PROJECT_STATE")
     if not isinstance(value["checkpoint_sha"], str) or not CHECKPOINT_SHA_RE.fullmatch(value["checkpoint_sha"]):
         raise GateError("MACHINE_STATE_INVALID")
     package_paths = _string_list(value["package_paths"])
-    if not set(_package_paths(package_id)).issubset(package_paths):
+    if package_paths != _package_paths(package_id):
         raise GateError("MACHINE_STATE_INVALID")
     if value["human_decision_path"] != DECISIONS_PATH:
         raise GateError("MACHINE_STATE_INVALID")
@@ -835,9 +953,209 @@ def _approval_commit(repo: Path, event: ApprovalEvent, checkpoint: str) -> str |
         raise GateError("APPROVAL_COMMIT_SCOPE_INVALID")
     if _commit_bytes(repo, commit, event.path) != _read_regular(repo, event.path):
         raise GateError("APPROVAL_EVENT_NOT_DURABLE")
-    if _commit_bytes(repo, commit, DECISIONS_PATH) != _read_regular(repo, DECISIONS_PATH):
+    if _run_git(repo, "cat-file", "-e", f"{commit}:{DECISIONS_PATH}").returncode != 0:
         raise GateError("HUMAN_DECISION_NOT_DURABLE")
     return commit
+
+
+def _parse_lifecycle_event(path: str, raw: bytes) -> LifecycleEvent:
+    expected_fields = {
+        "schema_version", "event_type", "event_id", "outcome_id", "package_id",
+        "package_checkpoint_sha", "from_status", "to_status", "actor", "reason",
+        "evidence_refs", "proof_refs", "human_decision_ref", "occurred_at_utc", "git_parent_sha",
+    }
+    try:
+        value = json.loads(raw.decode("utf-8"), object_pairs_hook=_reject_duplicate_keys)
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        raise GateError("LIFECYCLE_EVENT_INVALID") from exc
+    if not isinstance(value, dict) or set(value) != expected_fields:
+        raise GateError("LIFECYCLE_EVENT_INVALID")
+    event_id = value["event_id"]
+    if not isinstance(event_id, str) or not EVENT_ID_RE.fullmatch(event_id) or path != f"{LIFECYCLE_EVENT_DIR}/{event_id}.json":
+        raise GateError("LIFECYCLE_EVENT_INVALID")
+    if value["schema_version"] != LIFECYCLE_EVENT_SCHEMA_VERSION or value["event_type"] != "lifecycle":
+        raise GateError("UNSUPPORTED_PROJECT_STATE")
+    outcome_id, package_id = value["outcome_id"], value["package_id"]
+    if not isinstance(outcome_id, str) or not EVENT_ID_RE.fullmatch(outcome_id) or not isinstance(package_id, str) or not PACKAGE_ID_RE.fullmatch(package_id):
+        raise GateError("LIFECYCLE_EVENT_INVALID")
+    from_status, to_status = value["from_status"], value["to_status"]
+    if from_status not in LIFECYCLE_STATUSES or to_status not in LIFECYCLE_STATUSES:
+        raise GateError("LIFECYCLE_STATUS_UNSUPPORTED")
+    if to_status not in LIFECYCLE_TRANSITIONS[from_status]:
+        raise GateError("LIFECYCLE_TRANSITION_INVALID")
+    checkpoint, parent = value["package_checkpoint_sha"], value["git_parent_sha"]
+    if not isinstance(checkpoint, str) or not CHECKPOINT_SHA_RE.fullmatch(checkpoint) or not isinstance(parent, str) or not CHECKPOINT_SHA_RE.fullmatch(parent):
+        raise GateError("LIFECYCLE_EVENT_INVALID")
+    if not isinstance(value["actor"], str) or not value["actor"].strip() or not isinstance(value["reason"], str) or not value["reason"].strip():
+        raise GateError("LIFECYCLE_EVENT_INVALID")
+    evidence_refs, proof_refs = _string_list(value["evidence_refs"]), _string_list(value["proof_refs"])
+    human_ref = value["human_decision_ref"]
+    if human_ref is not None and not _safe_relative_path(human_ref):
+        raise GateError("LIFECYCLE_EVENT_INVALID")
+    occurred = value["occurred_at_utc"]
+    if not isinstance(occurred, str) or not UTC_TIMESTAMP_RE.fullmatch(occurred):
+        raise GateError("LIFECYCLE_EVENT_INVALID")
+    if to_status == "proved" and (not evidence_refs or not proof_refs):
+        raise GateError("PROOF_REFERENCES_REQUIRED")
+    if to_status == "accepted" and human_ref is None:
+        raise GateError("HUMAN_DECISION_REQUIRED")
+    return LifecycleEvent(event_id, path, outcome_id, package_id, checkpoint, from_status, to_status, value["actor"], value["reason"], evidence_refs, proof_refs, human_ref, occurred, parent)
+
+
+def _load_lifecycle_events(repo: Path) -> tuple[tuple[LifecycleEvent, bytes], ...]:
+    directory = repo / LIFECYCLE_EVENT_DIR
+    if not directory.exists():
+        return ()
+    if directory.is_symlink() or not directory.is_dir():
+        raise GateError("LIFECYCLE_EVENT_INVALID")
+    result: list[tuple[LifecycleEvent, bytes]] = []
+    for path in sorted(directory.iterdir()):
+        relative = path.relative_to(repo).as_posix()
+        if path.name == "README.md":
+            continue
+        if path.is_symlink() or not path.is_file() or path.suffix != ".json":
+            raise GateError("LIFECYCLE_EVENT_INVALID")
+        raw = path.read_bytes()
+        result.append((_parse_lifecycle_event(relative, raw), raw))
+    return tuple(result)
+
+
+def _lifecycle_add_commit(repo: Path, event: LifecycleEvent) -> str | None:
+    commits = _git_stdout(repo, "log", "--reverse", "--format=%H", "--diff-filter=A", "--", event.path).splitlines()
+    if len(commits) > 1:
+        raise GateError("LIFECYCLE_EVENT_MUTATED")
+    return commits[0].strip() if commits else None
+
+
+def _deleted_lifecycle_events(repo: Path) -> bool:
+    deleted = _git_stdout(repo, "log", "--all", "--diff-filter=D", "--format=", "--name-only", "--", LIFECYCLE_EVENT_DIR).splitlines()
+    return any(path.startswith(f"{LIFECYCLE_EVENT_DIR}/") and path.endswith(".json") for path in deleted)
+
+
+def _validate_proof_references(repo: Path, event: LifecycleEvent) -> None:
+    for reference in (*event.evidence_refs, *event.proof_refs):
+        _read_regular(repo, reference)
+    for reference in event.proof_refs:
+        try:
+            proof = json.loads(_read_regular(repo, reference).decode("utf-8"), object_pairs_hook=_reject_duplicate_keys)
+        except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+            raise GateError("PROOF_REFERENCE_INVALID") from exc
+        if (
+            not isinstance(proof, dict) or proof.get("schema_version") != 1
+            or proof.get("status") not in {"valid", "proved"}
+            or proof.get("provenance_valid") is not True
+            or proof.get("outcome_id") != event.outcome_id
+            or proof.get("package_id") != event.package_id
+            or proof.get("package_checkpoint_sha") != event.package_checkpoint_sha
+        ):
+            raise GateError("PROOF_REFERENCE_STALE_OR_INVALID")
+        if not isinstance(proof.get("evidence_refs"), list) or set(proof["evidence_refs"]) != set(event.evidence_refs):
+            raise GateError("PROOF_REFERENCE_INVALID")
+
+
+def _validate_human_lifecycle_decision(repo: Path, event: LifecycleEvent) -> None:
+    if event.to_status != "accepted":
+        return
+    if event.human_decision_ref is None:
+        raise GateError("HUMAN_DECISION_REQUIRED")
+    text = _read_text(repo, event.human_decision_ref)
+    required = (f"lifecycle_event_id: {event.event_id}", "decision: accepted", "actor: human")
+    if any(marker not in text for marker in required):
+        raise GateError("HUMAN_DECISION_REFERENCE_INVALID")
+
+
+def _projection_markers(repo: Path, relative: str) -> dict[str, str]:
+    values: dict[str, str] = {}
+    for line in _read_text(repo, relative).splitlines():
+        if not line.startswith("<!-- iskin-") or not line.endswith(" -->") or ": " not in line:
+            continue
+        key, value = line[4:-3].strip().split(": ", 1)
+        if key in {"iskin-lifecycle-event", "iskin-outcome-id", "iskin-status"}:
+            values[key] = value
+    return values
+
+
+def _validate_projection_alignment(repo: Path, event: LifecycleEvent) -> None:
+    expected = {"iskin-lifecycle-event": event.event_id, "iskin-outcome-id": event.outcome_id, "iskin-status": event.to_status}
+    for relative in ("product-memory/outcomes.md", "product-memory/evidence.md"):
+        if _projection_markers(repo, relative) != expected:
+            raise GateError("LIFECYCLE_PROJECTION_MISMATCH")
+
+
+def _validate_lifecycle_history(repo: Path, package: Package, checkpoint: str, approval_commit: str, events: Iterable[LifecycleEvent], *, validate_projections: bool = True) -> tuple[dict[str, str], dict[str, LifecycleEvent]]:
+    if _deleted_lifecycle_events(repo):
+        raise GateError("LIFECYCLE_EVENT_DELETED")
+    commits = _commits(repo, "HEAD")
+    positions = {commit: index for index, commit in enumerate(commits)}
+    states = {outcome_id: "approved" for outcome_id in package.outcome_ids}
+    latest: dict[str, LifecycleEvent] = {}
+    ordered = sorted(events, key=lambda item: positions.get(_lifecycle_add_commit(repo, item) or "", -1))
+    for event in ordered:
+        add_commit = _lifecycle_add_commit(repo, event)
+        if add_commit is None:
+            raise GateError("LIFECYCLE_EVENT_UNCOMMITTED")
+        if not _is_ancestor(repo, approval_commit, add_commit) or add_commit == approval_commit:
+            raise GateError("LIFECYCLE_EVENT_ORDER_INVALID")
+        parents = _commit_parents(repo, add_commit)
+        if len(parents) != 1 or event.git_parent_sha != parents[0]:
+            raise GateError("LIFECYCLE_GIT_SEQUENCE_INVALID")
+        if _commit_bytes(repo, add_commit, event.path) != _read_regular(repo, event.path):
+            raise GateError("LIFECYCLE_EVENT_MUTATED")
+        if event.package_id != package.package_id or event.package_checkpoint_sha != checkpoint:
+            raise GateError("LIFECYCLE_PACKAGE_MISMATCH")
+        if event.outcome_id not in package.outcome_ids:
+            raise GateError("UNKNOWN_OUTCOME")
+        if event.from_status != states[event.outcome_id]:
+            raise GateError("LIFECYCLE_FROM_STATUS_MISMATCH")
+        if event.to_status == "proved":
+            _validate_proof_references(repo, event)
+        _validate_human_lifecycle_decision(repo, event)
+        states[event.outcome_id] = event.to_status
+        latest[event.outcome_id] = event
+    if validate_projections:
+        for event in latest.values():
+            _validate_projection_alignment(repo, event)
+    return states, latest
+
+
+def _lifecycle_scope(repo: Path, package: Package, checkpoint: str, event: LifecycleEvent, current_state: dict[str, str]) -> tuple[bool, tuple[str, ...]]:
+    reasons: list[str] = []
+    staged = set(_staged_paths(repo))
+    added = set(_staged_added_paths(repo))
+    deleted = set(_staged_deleted_paths(repo))
+    allowed = {event.path, *LIFECYCLE_PROJECTION_PATHS, *event.evidence_refs, *event.proof_refs}
+    if event.human_decision_ref:
+        allowed.add(event.human_decision_ref)
+    if not staged.issubset(allowed) or event.path not in staged:
+        reasons.append("LIFECYCLE_SCOPE_EXTRANEOUS")
+    if event.path not in added or deleted & {event.path, *event.evidence_refs, *event.proof_refs}:
+        reasons.append("LIFECYCLE_EVENT_NOT_APPEND_ONLY")
+    if set(_unstaged_paths(repo)):
+        reasons.append("LIFECYCLE_SCOPE_UNSTAGED_CHANGES")
+    if _run_git(repo, "diff", "--cached", "--check").returncode != 0:
+        reasons.append("STAGED_DIFF_CHECK_FAILED")
+    if event.outcome_id not in package.outcome_ids:
+        reasons.append("UNKNOWN_OUTCOME")
+    elif event.from_status != current_state[event.outcome_id]:
+        reasons.append("LIFECYCLE_FROM_STATUS_MISMATCH")
+    if event.package_id != package.package_id or event.package_checkpoint_sha != checkpoint:
+        reasons.append("LIFECYCLE_PACKAGE_MISMATCH")
+    if event.git_parent_sha != _git_stdout(repo, "rev-parse", "HEAD").strip():
+        reasons.append("LIFECYCLE_GIT_SEQUENCE_INVALID")
+    try:
+        _validate_projection_alignment(repo, event)
+    except GateError as exc:
+        reasons.extend(exc.reason_codes)
+    if event.to_status == "proved":
+        try:
+            _validate_proof_references(repo, event)
+        except GateError as exc:
+            reasons.extend(exc.reason_codes)
+    try:
+        _validate_human_lifecycle_decision(repo, event)
+    except GateError as exc:
+        reasons.extend(exc.reason_codes)
+    return not reasons, tuple(dict.fromkeys(reasons))
 
 
 def _ensure_supported_project(repo: Path) -> None:
@@ -1009,14 +1327,51 @@ def _build_evaluation(repo: Path, action: str) -> Evaluation:
     approval_product = _product_or_evidence(_changed_paths(repo, approval_commit))
     if approval_product:
         return _blocked(package, "APPROVAL_COMMIT_CONTAINS_PRODUCT_OR_EVIDENCE", checkpoint=checkpoint, approval_state="prepared")
+
+    lifecycle_with_bytes = _load_lifecycle_events(repo)
+    committed_events: list[LifecycleEvent] = []
+    pending_events: list[LifecycleEvent] = []
+    for lifecycle_event, _ in lifecycle_with_bytes:
+        if _lifecycle_add_commit(repo, lifecycle_event) is None:
+            pending_events.append(lifecycle_event)
+        else:
+            committed_events.append(lifecycle_event)
+    states, latest = _validate_lifecycle_history(
+        repo, package, checkpoint, approval_commit, committed_events,
+        validate_projections=not pending_events,
+    )
+    if len(pending_events) > 1:
+        return _blocked(package, "MULTIPLE_PENDING_LIFECYCLE_EVENTS", checkpoint=checkpoint, approval_state="approved")
+    if pending_events:
+        pending = pending_events[0]
+        valid_scope, scope_reasons = _lifecycle_scope(repo, package, checkpoint, pending, states)
+        if not valid_scope:
+            return _blocked(package, *scope_reasons, checkpoint=checkpoint, approval_state="approved")
+        return Evaluation(
+            STATUS_IMPLEMENTATION,
+            ("APPROVAL_EVENT_VALID", "LIFECYCLE_EVENT_PENDING_CHECKPOINT"),
+            package.package_id,
+            checkpoint,
+            "approved",
+            states[pending.outcome_id],
+            ("lifecycle_checkpoint", "read_only_recovery"),
+            "approval_display_is_conversational_evidence_not_cryptographic_proof",
+        )
+    lifecycle = next(iter(latest.values())).to_status if len(latest) == 1 else "approved"
+    allowed = ["read_only_recovery"]
+    if any(state in {"approved", "in-progress", "evidence-pending"} for state in states.values()):
+        allowed.extend(("change_product", "prove_result", "checkpoint"))
+    reasons = ["APPROVAL_EVENT_VALID", "PACKAGE_MATCHES_CHECKPOINT", "HUMAN_DECISION_REFERENCE_VALID", "PREAPPROVAL_SCOPE_CLEAN"]
+    if latest:
+        reasons.append("LIFECYCLE_STATE_VALID")
     return Evaluation(
         STATUS_IMPLEMENTATION,
-        ("APPROVAL_EVENT_VALID", "PACKAGE_MATCHES_CHECKPOINT", "HUMAN_DECISION_REFERENCE_VALID", "PREAPPROVAL_SCOPE_CLEAN"),
+        tuple(reasons),
         package.package_id,
         checkpoint,
         "approved",
-        "implementation_allowed",
-        ("change_product", "prove_result", "checkpoint", "read_only_recovery"),
+        lifecycle,
+        tuple(allowed),
         "approval_display_is_conversational_evidence_not_cryptographic_proof",
     )
 

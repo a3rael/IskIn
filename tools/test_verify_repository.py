@@ -111,7 +111,7 @@ class VerifyRepositoryTests(unittest.TestCase):
         package_schema = self.template / "product-memory" / "approval-packages" / "README.md"
         package_schema.parent.mkdir(parents=True, exist_ok=True)
         package_schema.write_text(
-            "package_id package_paths intent и ценность граница MVP outcomes и наблюдаемое поведение "
+            "package_id package_paths immutable_content outcome_ids gate_ids superseded_package intent и ценность граница MVP outcomes и наблюдаемое поведение "
             "обязательные gates и evidence существенные uncertainties, риски, зависимости и ограничения "
             "checkpoint_sha: не записывать в этот пакет\n",
             encoding="utf-8",

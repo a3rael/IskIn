@@ -3,109 +3,32 @@
   "release_version": "0.4.0",
   "self_path": ".iskin/bootstrap-manifest.json",
   "files": [
-    {
-      "path": ".gitignore",
-      "sha256": "87214c9987d7b6b1ca342c3e1b59e03eba060aa47e73203ebe7e8d8643be6b0d"
-    },
-    {
-      "path": ".iskin/policy_gate.py",
-      "sha256": "704f582b410062d3c7196f5dcc66d3d24c81e403e1590280e88763b02929229e"
-    },
-    {
-      "path": "AGENTS.md",
-      "sha256": "e1c262b541bb1081d4acf1c3e740195e1a8c227d23901a075ba5e6a63a996321"
-    },
-    {
-      "path": "README.md",
-      "sha256": "17f91e0ee7c04b48be941c18016752e19a9949f2b697659d20dc3512faa18a78"
-    },
-    {
-      "path": "process/README.md",
-      "sha256": "25a47206f14ecfb9cde176d4f9e20ba3a02fadfd7ff35935faa472f7802341e3"
-    },
-    {
-      "path": "process/action-selection.md",
-      "sha256": "096005d57d1a58387e6240a35f6f54f7f8123b7bda03f76c646d570e4093f1ec"
-    },
-    {
-      "path": "process/autonomy-policy.md",
-      "sha256": "c505822f0a4500af88c1c529eda57be9bf93d0417f007841e7075e2354c92637"
-    },
-    {
-      "path": "process/evidence-provenance.md",
-      "sha256": "028f7fc181adec822b65b6708172445360b5957bae6dc7dc5db9f918d6546979"
-    },
-    {
-      "path": "process/fixtures/provenance-drift/README.md",
-      "sha256": "5291df527553124a2ab08e4198c4e6bbcef62f2993a0c42616433fa8f6d5744c"
-    },
-    {
-      "path": "process/fixtures/provenance-drift/template/manifest.json",
-      "sha256": "b1eacc7bddacd4d741cf795858958d4caa58a6ecf857c96cd3a3d46ecc63396d"
-    },
-    {
-      "path": "process/fixtures/provenance-drift/template/proof-record.json",
-      "sha256": "8156b4658775f1798fda400367394eedab1e4b663f313d9fc6c2a411490cf991"
-    },
-    {
-      "path": "process/fixtures/provenance-drift/template/report.md",
-      "sha256": "cdf676d6a9e6132fb87ec6861f133813b60b24f6c4e963fa320eb62cfb9db07f"
-    },
-    {
-      "path": "process/git-checkpoint-recovery.md",
-      "sha256": "7c4e2b8cf65a4ca9ad90078a127a344037408431d420e21ef534dea10c819738"
-    },
-    {
-      "path": "process/operating-model.md",
-      "sha256": "5e83f10f39bd65325d13022d986992e10ee9cbcd112e64e99c25453c0873b908"
-    },
-    {
-      "path": "process/quality-gates.md",
-      "sha256": "a4bbf2a84be41def86bb5df7e32e7493bc464c63e66b10058347c45e5f7d8f97"
-    },
-    {
-      "path": "product-memory/README.md",
-      "sha256": "95702188f07725d82d0cadba0d7ace05ce5d7857ae362266a27dbb6aa6d9a232"
-    },
-    {
-      "path": "product-memory/approval-packages.md",
-      "sha256": "6803e5c441d339393e13b4e52ed3fb95ab632c09209f3ea069db2cec2064368d"
-    },
-    {
-      "path": "product-memory/approval-packages/README.md",
-      "sha256": "1c6ba3608c9565192d40c511ef4826b2cee0c2ddc2e5b8341a5f07574e1fd1c1"
-    },
-    {
-      "path": "product-memory/decisions.md",
-      "sha256": "1936d0c7c6d7be655a9891a4900f4064d71a45572e3ff4ac97d027fa3c85c131"
-    },
-    {
-      "path": "product-memory/evidence.md",
-      "sha256": "489fea091aef078d4b0f770e11cb58b48bd9a66a5bca5f65519a0d7d66243977"
-    },
-    {
-      "path": "product-memory/intent.md",
-      "sha256": "5cb2277fb9aff70598ed4dfd84c702e3f0de7bc7c0fd90e77f0afd4a7599b279"
-    },
-    {
-      "path": "product-memory/outcomes.md",
-      "sha256": "4db764632fdadfd17b6a119ebf82f2e6ebc70f90170ceddd17c90e04d443cfa8"
-    },
-    {
-      "path": "product-memory/uncertainties.md",
-      "sha256": "8776b1c126afb23d35e53035defcf9bc8c2b31d89e5a738faf06a6aee064bb1c"
-    },
-    {
-      "path": "telemetry/README.md",
-      "sha256": "a234af2483dd5a9254d8fb49d771b18b243604e7e5122686eeb98f2b13389819"
-    },
-    {
-      "path": "telemetry/metrics.md",
-      "sha256": "8a3a4d11665d3a937fc98b3494864e0e5bf3bddb86535218e51eb90c6d994c19"
-    },
-    {
-      "path": "telemetry/run-log.md",
-      "sha256": "ff244ffb1230edaff9ec8584f314b14c7658a502cb0a2e5ae395fc59cedabdbc"
-    }
+    {"path": ".gitignore", "sha256": "87214c9987d7b6b1ca342c3e1b59e03eba060aa47e73203ebe7e8d8643be6b0d"},
+    {"path": ".iskin/policy_gate.py", "sha256": "602bc0478876cdc33ccfba3b3afa453e554ffbe878e7f85149252610da5fc431"},
+    {"path": "AGENTS.md", "sha256": "4c76395f912a8338481afe8d4265552cccb7f64c36bb2a8f6e15ce8cbd4347d5"},
+    {"path": "README.md", "sha256": "17f91e0ee7c04b48be941c18016752e19a9949f2b697659d20dc3512faa18a78"},
+    {"path": "process/README.md", "sha256": "25a47206f14ecfb9cde176d4f9e20ba3a02fadfd7ff35935faa472f7802341e3"},
+    {"path": "process/action-selection.md", "sha256": "dc6c675937e7c5418308af0edc6a2a7c5f9adae029a16603f1a8569fde20199b"},
+    {"path": "process/autonomy-policy.md", "sha256": "88884ec1bab32730f59af1e53c67d4e6460c387e27ae903b1c2a9d6c6637e41f"},
+    {"path": "process/evidence-provenance.md", "sha256": "86142ba658b6e702375ec4df1714f94662eaea8ed3c65f789ee22e7dcf850e2f"},
+    {"path": "process/fixtures/provenance-drift/README.md", "sha256": "5291df527553124a2ab08e4198c4e6bbcef62f2993a0c42616433fa8f6d5744c"},
+    {"path": "process/fixtures/provenance-drift/template/manifest.json", "sha256": "b1eacc7bddacd4d741cf795858958d4caa58a6ecf857c96cd3a3d46ecc63396d"},
+    {"path": "process/fixtures/provenance-drift/template/proof-record.json", "sha256": "8156b4658775f1798fda400367394eedab1e4b663f313d9fc6c2a411490cf991"},
+    {"path": "process/fixtures/provenance-drift/template/report.md", "sha256": "cdf676d6a9e6132fb87ec6861f133813b60b24f6c4e963fa320eb62cfb9db07f"},
+    {"path": "process/git-checkpoint-recovery.md", "sha256": "c01cc955039ce5fde806b4f17cdd49f610aeb7b0aa6432416595a81e6ad7e99f"},
+    {"path": "process/operating-model.md", "sha256": "a3a1dec8fb7ca67e96f99b5d5f1dbc97a27369d39b600ac8744122dc4bdc75fc"},
+    {"path": "process/quality-gates.md", "sha256": "a4bbf2a84be41def86bb5df7e32e7493bc464c63e66b10058347c45e5f7d8f97"},
+    {"path": "product-memory/README.md", "sha256": "e9c8d61bf64e7324942291a6f426b369bb8556d75c51b638c296f3ff5bc8c2e4"},
+    {"path": "product-memory/approval-packages.md", "sha256": "e1225a2d94236847cf464a4daada347958e04bc266ce6e7ae4de588d6eef7dfa"},
+    {"path": "product-memory/approval-packages/README.md", "sha256": "261b31cde1306b575c3f044cec74fa0df52d61c6b894c15f51c1d8edbd11cf5a"},
+    {"path": "product-memory/decisions.md", "sha256": "1936d0c7c6d7be655a9891a4900f4064d71a45572e3ff4ac97d027fa3c85c131"},
+    {"path": "product-memory/evidence.md", "sha256": "489fea091aef078d4b0f770e11cb58b48bd9a66a5bca5f65519a0d7d66243977"},
+    {"path": "product-memory/intent.md", "sha256": "5cb2277fb9aff70598ed4dfd84c702e3f0de7bc7c0fd90e77f0afd4a7599b279"},
+    {"path": "product-memory/lifecycle-events/README.md", "sha256": "dcad72546b735930e7cb6523057440fc6998fa67255c153ec1fec390ddfb4a84"},
+    {"path": "product-memory/outcomes.md", "sha256": "4db764632fdadfd17b6a119ebf82f2e6ebc70f90170ceddd17c90e04d443cfa8"},
+    {"path": "product-memory/uncertainties.md", "sha256": "8776b1c126afb23d35e53035defcf9bc8c2b31d89e5a738faf06a6aee064bb1c"},
+    {"path": "telemetry/README.md", "sha256": "a234af2483dd5a9254d8fb49d771b18b243604e7e5122686eeb98f2b13389819"},
+    {"path": "telemetry/metrics.md", "sha256": "8a3a4d11665d3a937fc98b3494864e0e5bf3bddb86535218e51eb90c6d994c19"},
+    {"path": "telemetry/run-log.md", "sha256": "ff244ffb1230edaff9ec8584f314b14c7658a502cb0a2e5ae395fc59cedabdbc"}
   ]
 }

@@ -60,7 +60,7 @@ Discovery включает исследование, обсуждение вар
 - `actor`;
 - `implementation_authorized: true`.
 
-Только такой event является основанием реализации и canonical product proof. Заполненные `intent.md`, `outcomes.md` или обычная запись решения без этого event не доказывают approval. Event не перезаписывается: новый approval получает новый `event_id` и новую версию файла.
+Только такой event является основанием реализации и canonical product proof. Заполненные projections или обычная запись решения без этого event не доказывают approval. Event не перезаписывается: новый approval получает новый `event_id` и новую версию файла.
 
 ### Pre-approval Git checkpoint
 
@@ -74,15 +74,23 @@ Pre-approval checkpoint может содержать только durable disco
 
 Human-readable запись в `product-memory/decisions.md` должна содержать ссылки `approval_event_id`, `approval_event_path`, `package_id` и `checkpoint_sha`, совпадающие с event. Gate проверяет согласованность ссылок, но это не является криптографическим доказательством авторства человека или факта показа пакета.
 
-Approval остаётся действительным только пока содержимое каждого `package_path` байтово совпадает с revision checkpoint. После изменения любого файла, входящего в пакет, прежний approval недействителен: требуется новый package ID, новый checkpoint и новый human approval. История не переписывается.
+Approval остаётся действительным только пока immutable package content и companion index из `package_paths` байтово совпадают с revision checkpoint. `intent.md`, `outcomes.md`, `uncertainties.md` и `evidence.md` не входят в эти paths: изменение их lifecycle metadata оформляется новым append-only lifecycle event и не требует новой package revision. После изменения specification прежний approval недействителен: требуется новый package ID/revision, новый checkpoint и новый human approval. История не переписывается.
 
 Generic-команда «продолжай работу», ответ discovery или разрешение отдельного технического действия может быть authority grant для этого действия, но не является lifecycle approval и не переводит intent/outcome в approved.
+
+## Append-only lifecycle events
+
+После approval каждый переход outcome записывается новым versioned event в `product-memory/lifecycle-events/<event_id>.json`. Schema version `1` содержит outcome/package/checkpoint, `from_status`, `to_status`, actor, reason, evidence/proof references, optional human decision reference, UTC timestamp и Git parent SHA. Event не редактируется и не удаляется.
+
+Единственная state machine задаётся в `process/operating-model.md`. Для обычного перехода Hermes вызывает read-only `python3 .iskin/policy_gate.py --action lifecycle_checkpoint`. Gate разрешает технический commit только при действительном approval, известном outcome, допустимом переходе, clean scope, aligned projections, существующих evidence/proof refs и `git diff --cached --check`. Lifecycle checkpoint не включает product code, если event явно не связан с допустимым evidence/proof path; product implementation checkpoint и lifecycle-only checkpoint разделены.
+
+`outcomes.md` и `evidence.md` содержат machine markers последнего event. Gate проверяет связь projection → event, но не интерпретирует произвольный Markdown.
 
 ## Граница `proved` и `accepted`
 
 Hermes может самостоятельно перевести outcome в `proved`, когда все заранее утверждённые обязательные product gates пройдены, каноническое evidence и proof-record созданы, а обязательный fingerprint checkpoint подтвердил актуальность scope. `proved` — это вывод из полного актуального доказательства; отдельный human acceptance для этого перехода не требуется.
 
-Человек утверждает intent, критерии результата, изменения quality gates и evidence scopes, значимые решения и финальный статус `accepted`. Hermes не может выставить `accepted`, если это отдельно не разрешено заранее утверждённым правилом.
+Человек утверждает immutable specification, изменения quality gates и evidence scopes, значимые решения и финальный статус `accepted`. Hermes не может выставить `accepted` без отдельного human decision reference в lifecycle event.
 
 При неполном, неактуальном или противоречивом evidence outcome остаётся `evidence-pending`, `reopened` или `blocked` по фактическому состоянию.
 
@@ -105,6 +113,8 @@ Hermes может самостоятельно перевести outcome в `pr
 Критические переходы дополнительно проверяются локальной read-only программой `.iskin/policy_gate.py` по versioned event schema, append-only event history и Git history. Она возвращает `BOOTSTRAP_REQUIRED`, `DISCOVERY_ALLOWED`, `AWAITING_APPROVAL`, `IMPLEMENTATION_ALLOWED` или `PROCESS_BLOCKED` и не записывает файлы, telemetry или Git state. Для новой установки без `HEAD` сначала требуется `BOOTSTRAP_REQUIRED`: discovery и approval preparation запрещены, а read-only action `stage_bootstrap_baseline` возвращает exact `allowed_paths` только при проверенном baseline и пустом index. Orchestration stage-ит только этот список, перечитывает scope и вызывает `bootstrap_checkpoint`; только exact staged baseline допускает technical initial commit. `bootstrap_checkpoint` не вводит lifecycle approval и не создаёт human gate. `approval_checkpoint` — отдельный action для технического commit уже записанного approval event. Для action-gate exit `0` означает разрешение именно запрошенного действия; отсутствие gate или неподдерживаемый project state фиксируются reason `UNSUPPORTED_PROJECT_STATE`, а повреждённая schema, ошибка Git, package drift, продуктовый код/evidence до approval или несогласованный lifecycle дают запрет.
 
 После initial commit этот bootstrap commit остаётся проверенной нижней временной границей product lifecycle: он должен быть единственным root commit с exact marker `chore: bootstrap iskin project baseline`, exact bootstrap scope и hashes из verified manifest. Проверка product code/evidence до pre-approval checkpoint рассматривает только изменения после этой границы и до checkpoint. Baseline fixture, вошедшая в verified bootstrap commit и не изменявшаяся после него, не является product evidence. Не подтверждённая или произвольно выбранная историческая граница, изменённый baseline и подмена manifest блокируют процесс fail closed.
+
+Lifecycle event schema, package index schema и approval event schema versioned независимо. Неизвестная версия или legacy state возвращает `UNSUPPORTED_PROJECT_STATE`; автоматическая миграция не выполняется.
 
 `read_only_recovery` и `status` могут вернуть exit `0`, чтобы сформировать диагностический отчёт о заблокированном состоянии. Навыки обязаны проверять одновременно exit code и machine-readable `status`; это измеряемое ограничение v0.4, но не capability broker, Git hook или OS-level enforcement.
 

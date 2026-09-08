@@ -18,7 +18,7 @@
 - Product gates и evidence: `process/quality-gates.md`, `process/evidence-provenance.md`.
 - Git checkpoint и recovery: `process/git-checkpoint-recovery.md`.
 - Bootstrap baseline: immutable `.iskin/bootstrap-manifest.json` and generated `.iskin/installation-manifest.json`; process fixtures listed by that baseline are not product evidence during the initial commit only.
-- Pre-approval package: registry `product-memory/approval-packages.md` and files `product-memory/approval-packages/<package_id>.md`; approval event: `product-memory/decisions.md`.
+- Pre-approval package: registry `product-memory/approval-packages.md`, immutable specification `product-memory/approval-packages/<package_id>.md` and companion index `<package_id>.json`; lifecycle events: `product-memory/lifecycle-events/<event_id>.json`; approval event: `product-memory/approval-events/<event_id>.json`; `product-memory/decisions.md` is a human-readable reference.
 - Определения telemetry: `telemetry/metrics.md`; фактические циклы: `telemetry/run-log.md`.
 
 ## Git и полномочия

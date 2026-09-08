@@ -27,6 +27,6 @@
 
 До выбора implementation action должен существовать pre-approval checkpoint commit с полным `product-memory/approval-packages.md`. Пакет только в dirty tree, checkpoint с product code/evidence или отсутствие показа пакета блокируют реализацию. Generic-команда «продолжай работу» и разрешение технического действия не являются lifecycle approval.
 
-После approval Hermes по-прежнему выбирает ровно одно малое обратимое действие в пределах утверждённого package.
+После approval Hermes по-прежнему выбирает ровно одно малое обратимое действие в пределах утверждённого package. Обычный переход outcome не меняет immutable specification: создаётся новый append-only `product-memory/lifecycle-events/<event_id>.json`, обновляются проверяемые projections и вызывается `python3 .iskin/policy_gate.py --action lifecycle_checkpoint`. Новая package revision нужна только при изменении intent, MVP boundary, outcome definition или обязательных gates.
 
 Открытый необязательный process или tooling gap не блокирует следующий независимый outcome, если не препятствует обязательному продуктовому гейту. Открытый обязательный product evidence gap блокирует следующий независимый outcome, кроме явно записанного human override.
