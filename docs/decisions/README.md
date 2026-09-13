@@ -24,7 +24,8 @@
 - `2026-09-06-v0.4-git-checkpoint-experiment.md` — human decision о Git-based checkpoint, recovery, global skills и совместимости первого эксперимента v0.4.
 - `2026-09-06-v0.4-runtime-skill-boundary.md` — human decision о namespaced global skill bundle, его IskIn-specific границе и единственном каноническом источнике `runtime/skills/`.
 - `2026-09-06-v0.4-installer-runtime-mode.md` — human decision о выборе project-trust handoff по фактическому составу package manifest.
-- `2026-09-13-v0.4-experimental-prerelease.md` — human decision сохранить текущую v0.4 как экспериментальный prerelease, не скрывать ограничения и перенести улучшения в v0.5.
+- `2026-09-13-v0.4-experimental-prerelease.md` — историческое human decision сохранить текущую v0.4 как экспериментальный prerelease, не скрывать ограничения и перенести улучшения в v0.5.
+- `2026-09-13-v0.4-ordinary-release-status.md` — новое human decision: v0.4.0 становится обычным Latest-релизом и рекомендуемой текущей основой; прежнее решение заменяется только в части статуса.
 - `2026-09-13-g4-provenance-clarification.md` — фактологическое уточнение: исторический G4 pass имеет устаревший fingerprint `bot/reminders.py`; принятое решение и исторические evidence не переписываются.
 - `2026-09-02-local-commit-policy.md` — утверждённая человеком development-only политика локальных коммитов репозитория ИскИн.
 
